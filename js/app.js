@@ -1,0 +1,1057 @@
+/* ==========================================================================
+   Chanel Monroe CRM — screens, routing and event handling
+   ========================================================================== */
+(function () {
+  const { esc, money, fmtDate, fmtShort, fmtTime, fmtDateTime, relDays, daysUntil, today, ymd, parseYmd, addDays,
+    icon, stars, toast, modal, confirmBox, toLocalInput, copyText, download, pad } = UI;
+  const W = Workflow;
+  const $app = () => document.getElementById('app');
+  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all' };
+  const blobCache = new Map();
+
+  /* ---------------- routing ---------------- */
+  const parts = () => (location.hash.replace(/^#\/?/, '').split('?')[0] || '').split('/').filter(Boolean);
+
+  function render() {
+    const [p0, p1] = parts();
+    if (Auth.recovery) return renderNewPassword();
+    if (p0 === 'enquire') return renderPublicEnquiry();
+    if (!Auth.session) return p0 === 'signup' ? renderSignup() : renderLogin();
+    if (!Auth.isStaff()) return renderPending();
+    let view;
+    switch (p0) {
+      case undefined: view = viewDashboard(); break;
+      case 'pipeline': view = viewPipeline(); break;
+      case 'booking': view = viewBooking(p1); break;
+      case 'clients': view = viewClients(); break;
+      case 'client': view = viewClient(p1); break;
+      case 'calendar': view = viewCalendar(); break;
+      case 'invoices': view = viewInvoices(); break;
+      case 'invoice': view = viewInvoice(p1); break;
+      case 'reviews': view = viewReviews(); break;
+      case 'profile': view = viewProfile(); break;
+      case 'new': view = viewNewEnquiry(p1); break;
+      default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
+    }
+    renderShell(view, p0 || '');
+    if (view.after) view.after();
+    loadPhotos();
+  }
+  function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
+  const go = h => { if (location.hash === h) rerender(); else location.hash = h; };
+
+  /* ---------------- shell ---------------- */
+  function renderShell(view, active) {
+    const p = W.profile(); const u = Auth.current;
+    const due = W.dueReminders().length;
+    const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
+    const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
+      ['clients', 'users', 'Clients'], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'], ['profile', 'user', 'Profile']];
+    const isActive = k => active === k || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
+    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'profile'].includes(n[0]));
+    $app().innerHTML = `
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="#/">${avatarHtml(p, 'brand-mark')}<div><div class="brand-name">${esc(p.businessName)}</div><div class="brand-sub">Client studio</div></div></a>
+        <nav class="side-nav">${nav.map(([k, ic, l, n]) => `<a href="#/${k}" class="${isActive(k) ? 'active' : ''}">${icon(ic)}<span>${l}</span>${n ? `<b class="count">${n}</b>` : ''}</a>`).join('')}</nav>
+        <a class="btn primary block" href="#/new">${icon('plus')} New enquiry</a>
+        <div class="side-foot"><div><strong>${esc(u.name)}</strong><small>${esc(u.email)}</small></div>
+          <button class="icon-btn" data-act="logout" title="Sign out">${icon('logout')}</button></div>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          ${view.back ? `<a class="icon-btn back" href="${view.back}" aria-label="Back">${icon('chevL')}</a>` : ''}
+          <div class="titles"><h1>${esc(view.title)}</h1>${view.subtitle ? `<p>${view.subtitle}</p>` : ''}</div>
+          <div class="top-actions">${view.actions || ''}</div>
+        </header>
+        <main class="content">${view.html}</main>
+      </div>
+      <nav class="tabbar">${tabs.map(([k, ic, l, n]) => `<a href="#/${k}" class="${isActive(k) ? 'active' : ''}">${icon(ic)}<span>${l === 'Dashboard' ? 'Home' : l}</span>${n ? '<i></i>' : ''}</a>`).join('')}</nav>
+      <a class="fab" href="#/new" aria-label="New enquiry">${icon('plus')}</a>
+    </div>`;
+  }
+  const avatarHtml = (p, cls) => p.avatar ? `<img class="${cls}" src="${p.avatar}" alt="">` : `<div class="${cls}">${esc((p.artistName || 'CM').split(' ').map(s => s[0]).join('').slice(0, 2))}</div>`;
+
+  /* ---------------- shared bits ---------------- */
+  const stageBadge = b => b.status === 'lost' ? '<span class="badge lost">Lost</span>' : `<span class="badge s-${b.stage}">${esc(W.stage(b.stage).short)}</span>`;
+  const daysBadge = b => {
+    if (!b.eventDate) return '';
+    const n = daysUntil(b.eventDate);
+    const cls = n < 0 ? 'past' : n <= 7 ? 'soon' : '';
+    return `<span class="days ${cls}">${n === 0 ? 'Today' : n > 0 ? n + 'd' : Math.abs(n) + 'd ago'}</span>`;
+  };
+  function reminderRow(r, showClient = true) {
+    const b = DB.get('bookings', r.bookingId); const c = b ? W.clientOf(b) : null;
+    const overdue = new Date(r.dueAt) < new Date(new Date().setHours(0, 0, 0, 0));
+    return `<li class="rem ${overdue ? 'overdue' : ''} ${r.status !== 'pending' ? 'closed' : ''}">
+      <div class="rem-ic">${icon(r.kind === 'call' ? 'phone' : r.templateKey ? 'message' : 'bell')}</div>
+      <div class="rem-main"><strong>${esc(r.title)}</strong>
+        <small>${overdue ? 'Overdue · ' : ''}${fmtDateTime(r.dueAt)}${showClient && b ? ` · <a href="#/booking/${b.id}">${esc(W.clientName(c))}</a>` : ''}${r.status !== 'pending' ? ' · ' + r.status : ''}</small></div>
+      ${r.status === 'pending' ? `<div class="rem-act">
+        ${r.templateKey ? `<button class="btn sm" data-act="remSend" data-id="${r.id}">Send</button>` : ''}
+        <button class="icon-btn" data-act="remDone" data-id="${r.id}" title="Done">${icon('check')}</button>
+        <button class="icon-btn" data-act="remSkip" data-id="${r.id}" title="Skip">${icon('x')}</button></div>` : ''}
+    </li>`;
+  }
+  function bookingCard(b) {
+    const c = W.clientOf(b); const t = W.totals(b);
+    const pend = DB.list('reminders', r => r.bookingId === b.id && r.status === 'pending' && new Date(r.dueAt) <= new Date()).length;
+    return `<a class="deal" href="#/booking/${b.id}" data-search="${esc((W.clientName(c) + ' ' + (b.eventType || '') + ' ' + (b.location || '') + ' ' + (c.email || '')).toLowerCase())}">
+      <div class="deal-top"><strong>${esc(W.clientName(c))}</strong>${daysBadge(b)}</div>
+      <div class="muted">${esc(b.eventType || 'Event')} · ${fmtShort(b.eventDate)}${b.readyBy ? ' · ' + fmtTime(b.readyBy) : ''}</div>
+      <div class="deal-foot"><span>${t.total ? money(t.total) : '<em>No quote</em>'}</span>${pend ? `<span class="due">${icon('bell')}${pend}</span>` : ''}${b.status === 'lost' ? '<span class="badge lost">Lost</span>' : ''}</div>
+    </a>`;
+  }
+  const empty = (text, cta = '') => `<div class="empty">${text}${cta ? '<div>' + cta + '</div>' : ''}</div>`;
+
+  /* ================= DASHBOARD ================= */
+  function viewDashboard() {
+    const u = Auth.current; const td = today();
+    const open = DB.list('bookings', b => b.status !== 'lost');
+    const newEnq = open.filter(b => b.stage === 'enquiry');
+    const upcoming = open.filter(b => b.eventDate && b.eventDate >= td && W.idx(b.stage) >= W.idx('deposit') && W.idx(b.stage) <= W.idx('day'))
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    const outstanding = open.filter(b => W.idx(b.stage) >= W.idx('deposit')).reduce((s, b) => s + W.totals(b).balance, 0);
+    const month = td.slice(0, 7);
+    const paidMonth = DB.list('payments', x => (x.paidAt || '').slice(0, 7) === month).reduce((s, x) => s + +x.amount, 0);
+    const confirmedMonth = open.filter(b => (b.eventDate || '').slice(0, 7) === month && W.idx(b.stage) >= W.idx('booked')).length;
+    const due = W.dueReminders();
+    const hr = new Date().getHours();
+    const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+    const counts = W.STAGES.map(s => [s, open.filter(b => b.stage === s.key).length]);
+    return {
+      title: `${greet}, ${u.name.split(' ')[0]}`,
+      subtitle: new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }),
+      html: `
+      <section class="stats">
+        <a class="stat" href="#/pipeline"><span>New enquiries</span><strong>${newEnq.length}</strong></a>
+        <a class="stat" href="#/calendar"><span>Booked this month</span><strong>${confirmedMonth}</strong></a>
+        <a class="stat" href="#/invoices"><span>Owing to you</span><strong>${money(outstanding)}</strong></a>
+        <a class="stat" href="#/invoices"><span>Paid this month</span><strong>${money(paidMonth)}</strong></a>
+      </section>
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-head"><h2>To do today</h2><span class="muted">${due.length} item${due.length === 1 ? '' : 's'}</span></div>
+          ${due.length ? `<ul class="rem-list">${due.map(r => reminderRow(r)).join('')}</ul>` : empty('Nothing due. Enjoy the breather ✨')}
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Coming up</h2><a href="#/calendar" class="muted">Calendar →</a></div>
+          ${upcoming.length ? `<ul class="list">${upcoming.slice(0, 6).map(b => {
+            const c = W.clientOf(b);
+            return `<li><a href="#/booking/${b.id}" class="list-row"><div class="date-chip"><b>${parseYmd(b.eventDate).getDate()}</b><small>${parseYmd(b.eventDate).toLocaleDateString('en-AU', { month: 'short' })}</small></div>
+              <div class="grow"><strong>${esc(W.clientName(c))}</strong><small>${esc(b.eventType || '')}${b.readyBy ? ' · ready by ' + fmtTime(b.readyBy) : ''}${b.location ? ' · ' + esc(b.location) : ''}</small></div>${stageBadge(b)}</a></li>`;
+          }).join('')}</ul>` : empty('No confirmed bookings coming up yet.')}
+        </section>
+      </div>
+      <section class="card">
+        <div class="card-head"><h2>Pipeline</h2><a href="#/pipeline" class="muted">Open board →</a></div>
+        <div class="funnel">${counts.map(([s, n]) => `<a href="#/pipeline" class="funnel-step ${n ? '' : 'zero'}"><strong>${n}</strong><span>${s.short}</span></a>`).join('')}</div>
+      </section>
+      <section class="card soft">
+        <div class="card-head"><h2>Client enquiry form</h2></div>
+        <p class="muted">Enquiries from the website chat land in the Enquiry column automatically, with a reply reminder. This backup form works the same way. Use it to take an enquiry over the phone.</p>
+        <div class="row gap"><a class="btn" href="#/enquire" target="_blank">Open client form</a><a class="btn ghost" href="#/new">Add enquiry manually</a></div>
+      </section>`
+    };
+  }
+
+  /* ================= PIPELINE ================= */
+  function viewPipeline() {
+    const list = DB.list('bookings').sort((a, b) => (a.eventDate || '9999').localeCompare(b.eventDate || '9999'));
+    const openList = list.filter(b => b.status !== 'lost');
+    const lost = list.filter(b => b.status === 'lost');
+    const cols = W.STAGES.map(s => ({ s, items: openList.filter(b => b.stage === s.key) }));
+    return {
+      title: 'Enquiries & bookings',
+      subtitle: `${openList.filter(b => b.stage !== 'complete').length} active · swipe across to see each stage`,
+      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search clients" data-filter=".deal"></label>
+        <button class="btn ghost sm" data-act="toggleLost">${state.showLost ? 'Hide' : 'Show'} lost (${lost.length})</button>`,
+      html: `<div class="board">${cols.map(({ s, items }) => `
+        <section class="col">
+          <header><span class="dot s-${s.key}"></span><h3>${esc(s.label)}</h3><b>${items.length}</b></header>
+          <div class="col-body">${items.map(bookingCard).join('') || '<div class="col-empty">—</div>'}</div>
+        </section>`).join('')}
+        ${state.showLost ? `<section class="col lostcol"><header><span class="dot lost"></span><h3>Lost</h3><b>${lost.length}</b></header>
+          <div class="col-body">${lost.map(bookingCard).join('') || '<div class="col-empty">—</div>'}</div></section>` : ''}
+      </div>`
+    };
+  }
+
+  /* ================= BOOKING DETAIL ================= */
+  const STAGE_ACTIONS = {
+    enquiry: [['tpl', 'enquiry_reply', 'Reply to enquiry', ''], ['scheduleCall', '', 'Schedule phone call', 'primary']],
+    call: [['tpl', 'call_confirm', 'Confirm call', ''], ['scheduleCall', '', 'Reschedule', 'ghost'], ['logCall', '', 'Log call notes', 'primary']],
+    updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Send quote & deposit request', 'primary']],
+    deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
+    booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
+    day: [['photo', '', 'Upload photos', ''], ['advance', '', 'Finish up · create final invoice', 'primary']],
+    invoice: [['tpl', 'final_invoice', 'Send final invoice', ''], ['payment', 'final', 'Record payment', 'primary']],
+    review: [['tpl', 'review_request', 'Ask for a review', ''], ['addReview', '', 'Record review', 'primary']],
+    complete: []
+  };
+
+
+  /** Everything the client chose in the website's chat enquiry. */
+  function websiteCard(b) {
+    const w = (b.answers || {}).website; if (!w) return '';
+    const arr = v => Array.isArray(v) ? v : [];
+    const lessons = arr(w.lessonFocus).map(x => typeof x === 'string' ? x : (x.name || JSON.stringify(x)));
+    const rows = [
+      ['Category', w.category], ['Look', [w.look, w.subStyle].filter(Boolean).join(' · ')], ['How many', w.quantity],
+      ['Time given as', w.timeType === 'ready_by' ? 'Ready by' : w.timeType ? 'Start time' : ''],
+      ['Lashes', w.lashes], ['Patch test wanted', w.patchTest ? 'Yes' : ''], ['Lesson focus', lessons.join(', ')],
+      ['Other services', arr(w.extras).join(', ')],
+      ['Website estimate', w.estimate ? `${w.estimateIsFrom ? 'from ' : ''}${money(w.estimate)}${w.deposit ? ` (deposit ~${money(w.deposit)})` : ''}` : ''],
+      ['Travel', w.travelKm ? `about ${w.travelKm} km · ${w.travelIncluded ? 'included' : 'fee ' + money(w.travelFee || 0)}` : ''],
+      ['Mailing list', w.mailingList ? 'Opted in' : '']
+    ].filter(r => r[1]);
+    const refs = arr(w.refs).filter(r => r && r.src);
+    const team = arr(w.affiliates).filter(a => a && (a.handle || a.name));
+    return `<div class="notes web">
+      <h3>From the website enquiry</h3>
+      <dl class="answers">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${refs.length ? `<h3>Reference looks they picked</h3><div class="ref-grid">${refs.map(r => `<a href="${esc(r.post || r.src)}" target="_blank" rel="noopener"><img src="${esc(r.src)}" alt="" loading="lazy"><span>${esc(r.by || '')}</span></a>`).join('')}</div>` : ''}
+      ${team.length ? `<h3>Beauty team they’re interested in</h3><ul class="team">${team.map(a => `<li><a href="${esc(a.instagram || a.site || '#')}" target="_blank" rel="noopener">@${esc(a.handle || a.name)}</a> <small class="muted">${esc(a.category || '')}</small></li>`).join('')}</ul>` : ''}
+    </div>`;
+  }
+
+  function viewBooking(id) {
+    const b = DB.get('bookings', id);
+    if (!b) return { title: 'Booking not found', back: '#/pipeline', html: empty('This booking may have been deleted.') };
+    const c = W.clientOf(b); const t = W.totals(b); const chk = W.checkNext(b); const si = W.idx(b.stage);
+    const lost = b.status === 'lost';
+    const invoices = DB.list('invoices', x => x.bookingId === b.id).sort((a, z) => a.number.localeCompare(z.number));
+    const pays = DB.list('payments', x => x.bookingId === b.id).sort((a, z) => (a.paidAt || '').localeCompare(z.paidAt || ''));
+    const rems = DB.list('reminders', r => r.bookingId === b.id).sort((a, z) => a.dueAt.localeCompare(z.dueAt));
+    const photos = DB.list('photos', p => p.bookingId === b.id).sort((a, z) => a.createdAt.localeCompare(z.createdAt));
+    const acts = DB.list('activity', a => a.bookingId === b.id).sort((a, z) => z.at.localeCompare(a.at));
+    const review = DB.find('reviews', r => r.bookingId === b.id);
+    const clashes = b.eventDate ? W.dateClashes(b) : [];
+    const ans = b.answers || {};
+    const svcOptions = W.services(true).map(s => `<option value="${s.id}">${esc(s.name)} — ${money(s.price)}</option>`).join('');
+
+    const nextCard = lost
+      ? `<section class="card next lost"><h2>Marked lost</h2><p>${esc(b.lostReason || 'No reason given')}</p><button class="btn primary" data-act="reopen" data-id="${b.id}">Reopen booking</button></section>`
+      : `<section class="card next">
+        <div class="next-head"><span class="eyebrow">Step ${si + 1} of ${W.STAGES.length}</span><h2>${esc(W.stage(b.stage).label)}</h2></div>
+        <p>${esc(W.stage(b.stage).hint)}</p>
+        ${b.stage === 'call' && b.callAt ? `<p class="callout">${icon('phone')} Call ${relDays(ymd(new Date(b.callAt)))} · ${fmtDateTime(b.callAt)}</p>` : ''}
+        ${chk.next && chk.reasons.length ? `<ul class="checks">${chk.reasons.map(r => `<li class="${r.soft ? 'soft' : 'hard'}">${esc(r.text)}</li>`).join('')}</ul>` : ''}
+        <div class="next-actions">${STAGE_ACTIONS[b.stage].map(([act, arg, label, cls]) => `<button class="btn ${cls}" data-act="${act}" data-id="${b.id}" data-arg="${arg}">${label}</button>`).join('')}</div>
+        <div class="next-foot">
+          ${si > 0 ? `<button class="link" data-act="back" data-id="${b.id}">← Back a step</button>` : '<span></span>'}
+          ${chk.next ? `<button class="link" data-act="advance" data-id="${b.id}">Skip to ${esc(chk.next.short)} →</button>` : ''}
+        </div>
+      </section>`;
+
+    return {
+      title: W.clientName(c),
+      subtitle: `${esc(b.eventType || 'Event')} · ${b.eventDate ? fmtDate(b.eventDate) + ' (' + relDays(b.eventDate) + ')' : 'date TBC'}`,
+      back: '#/pipeline',
+      actions: `${stageBadge(b)}<button class="btn ghost sm" data-act="bookingMenu" data-id="${b.id}">More</button>`,
+      html: `
+      <ol class="stepper ${lost ? 'is-lost' : ''}">${W.STAGES.map((s, i) => `<li class="${i < si ? 'done' : i === si ? 'current' : ''}"><span>${i < si ? icon('check') : i + 1}</span><em>${s.short}</em></li>`).join('')}</ol>
+      <div class="detail">
+        <div class="detail-main">
+          ${nextCard}
+
+          <section class="card" id="details">
+            <div class="card-head"><h2>Event details</h2></div>
+            ${clashes.length ? `<p class="warn">Heads up: ${clashes.map(x => esc(W.clientName(W.clientOf(x)))).join(', ')} also booked on this date.</p>` : ''}
+            <form data-form="details" data-id="${b.id}" class="form-grid">
+              <label>Event type<select name="eventType">${[...new Set(['', ...W.EVENT_TYPES, b.eventType || ''])].map(e => `<option ${e === b.eventType ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></label>
+              <label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
+              <label>Ready by<input type="time" name="readyBy" value="${esc(b.readyBy)}"></label>
+              <label>Start time<input type="time" name="startTime" value="${esc(b.startTime || '')}"></label>
+              <label class="span-2">Location / address<input name="location" value="${esc(b.location)}" placeholder="Venue, suburb or full address"></label>
+              <label>People needing makeup<input type="number" min="1" name="partySize" value="${esc(b.partySize || 1)}"></label>
+              <label>Trial<select name="trial">${['', 'Yes', 'No', 'Not sure', 'Done'].map(o => `<option ${o === (ans.trial || '') ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+              <label class="span-2">Look / notes<textarea name="look" rows="3">${esc(ans.look || '')}</textarea></label>
+              <div class="span-2 row end"><button class="btn sm">Save details</button></div>
+            </form>
+            ${ans.callPref || ans.heardFrom || ans.notes ? `<dl class="answers">
+              ${ans.callPref ? `<dt>Best time to call</dt><dd>${esc(ans.callPref)}</dd>` : ''}
+              ${ans.heardFrom ? `<dt>Found you via</dt><dd>${esc(ans.heardFrom)}</dd>` : ''}
+              ${ans.notes ? `<dt>Other notes</dt><dd>${esc(ans.notes).replace(/\n/g, '<br>')}</dd>` : ''}</dl>` : ''}
+            ${websiteCard(b)}
+            ${b.callNotes ? `<div class="notes"><h3>Call notes</h3><p>${esc(b.callNotes).replace(/\n/g, '<br>')}</p></div>` : ''}
+          </section>
+
+          <section class="card" id="quote">
+            <div class="card-head"><h2>Quote</h2>${t.total ? `<strong>${money(t.total)}</strong>` : ''}</div>
+            <table class="lines">
+              <thead><tr><th>Service</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
+              <tbody>${(b.lines || []).map((l, i) => `<tr>
+                <td><input value="${esc(l.name)}" data-change="line" data-id="${b.id}" data-i="${i}" data-field="name"></td>
+                <td class="num"><input type="number" min="0" value="${esc(l.qty)}" data-change="line" data-id="${b.id}" data-i="${i}" data-field="qty"></td>
+                <td class="num"><input type="number" min="0" step="0.01" value="${esc(l.price)}" data-change="line" data-id="${b.id}" data-i="${i}" data-field="price"></td>
+                <td class="num">${money(l.qty * l.price)}</td>
+                <td><button class="icon-btn" data-act="removeLine" data-id="${b.id}" data-i="${i}" title="Remove">${icon('x')}</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No services yet — add one below.</td></tr>'}
+              </tbody>
+            </table>
+            <form data-form="addLine" data-id="${b.id}" class="row gap add-line"><select name="serviceId" required><option value="">Add a service…</option>${svcOptions}</select><input type="number" name="qty" min="1" value="1" class="qty"><button class="btn sm">${icon('plus')} Add</button></form>
+            <div class="totals">
+              <label>Travel fee<input type="number" min="0" step="0.01" value="${esc(b.travelFee)}" data-change="money" data-id="${b.id}" data-field="travelFee" placeholder="0"></label>
+              <label>Discount<input type="number" min="0" step="0.01" value="${esc(b.discount)}" data-change="money" data-id="${b.id}" data-field="discount" placeholder="0"></label>
+              <label>Deposit<input type="number" min="0" step="0.01" value="${esc(b.depositAmount)}" data-change="money" data-id="${b.id}" data-field="depositAmount" placeholder="${t.deposit} (${W.profile().depositPercent}%)"></label>
+              <dl><dt>Total</dt><dd>${money(t.total)}</dd>${t.gst ? `<dt>incl. GST</dt><dd>${money(t.gst)}</dd>` : ''}<dt>Deposit</dt><dd>${money(t.deposit)}</dd><dt>Paid</dt><dd>${money(t.paid)}</dd><dt class="strong">Balance</dt><dd class="strong">${money(t.balance)}</dd></dl>
+            </div>
+          </section>
+
+          <section class="card" id="photos">
+            <div class="card-head"><h2>Photos</h2><label class="btn sm">${icon('camera')} Upload<input type="file" accept="image/*" multiple hidden data-change="photos" data-id="${b.id}"></label></div>
+            <div class="row gap kind-pick"><span class="muted">Upload as:</span>${['inspo', 'before', 'after', 'day'].map(k => `<label class="chip"><input type="radio" name="photoKind" value="${k}" ${k === (b.stage === 'day' || si > W.idx('day') ? 'day' : 'inspo') ? 'checked' : ''}>${k === 'inspo' ? 'Inspiration' : k[0].toUpperCase() + k.slice(1)}</label>`).join('')}</div>
+            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}"><img data-photo="${p.id}" alt=""><span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet. Add inspiration pics now and before/after shots on the day.')}
+          </section>
+        </div>
+
+        <div class="detail-side">
+          <section class="card client-card">
+            <div class="card-head"><h2>Client</h2><a href="#/client/${c.id}" class="muted">Profile →</a></div>
+            <div class="contact">
+              ${c.phone ? `<a href="tel:${esc(c.phone.replace(/\s/g, ''))}">${icon('phone')}${esc(c.phone)}</a>` : ''}
+              ${c.email ? `<a href="mailto:${esc(c.email)}">${icon('mail')}${esc(c.email)}</a>` : ''}
+              ${c.instagram ? `<a href="https://instagram.com/${esc(c.instagram.replace('@', ''))}" target="_blank">${icon('insta')}${esc(c.instagram)}</a>` : ''}
+            </div>
+            ${c.skinType || c.allergies ? `<dl class="answers"><dt>Skin</dt><dd>${esc(c.skinType || '—')}</dd>${c.allergies ? `<dt>Allergies / sensitivities</dt><dd class="alert">${esc(c.allergies)}</dd>` : ''}</dl>` : ''}
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2>Messages</h2></div>
+            <div class="tpl-list">${Object.entries(W.TEMPLATES).filter(([, v]) => Math.abs(W.idx(v.stage) - si) <= 1).map(([k, v]) => `<button class="tpl" data-act="tpl" data-id="${b.id}" data-arg="${k}">${icon('message')}${esc(v.label)}</button>`).join('')}
+              <button class="tpl muted" data-act="allTemplates" data-id="${b.id}">All templates…</button></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2>Payments</h2><button class="btn sm" data-act="payment" data-id="${b.id}" data-arg="${si < W.idx('booked') ? 'deposit' : 'final'}">${icon('plus')} Payment</button></div>
+            ${invoices.length ? `<ul class="list inv">${invoices.map(i => `<li><a class="list-row" href="#/invoice/${i.id}"><div class="grow"><strong>${esc(i.number)}</strong><small>${i.type === 'deposit' ? 'Deposit' : 'Final'} · due ${fmtShort(i.dueAt)}</small></div><span>${money(i.total)}</span><span class="badge inv-${i.status}">${i.status}</span></a></li>`).join('')}</ul>` : '<p class="muted small">Invoices are created automatically when you send the quote and when the day is done.</p>'}
+            ${pays.length ? `<ul class="list pays">${pays.map(p => `<li class="list-row"><div class="grow"><strong>${money(p.amount)}</strong><small>${esc(p.type)} · ${esc(p.method || '')} · ${fmtShort(p.paidAt)}</small></div><button class="icon-btn" data-act="deletePayment" data-id="${p.id}" title="Remove payment">${icon('x')}</button></li>`).join('')}</ul>` : ''}
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2>Reminders</h2><button class="btn sm" data-act="addReminder" data-id="${b.id}">${icon('plus')} Add</button></div>
+            ${rems.length ? `<ul class="rem-list compact">${rems.map(r => reminderRow(r, false)).join('')}</ul>` : '<p class="muted small">Reminders are scheduled automatically once the deposit is in.</p>'}
+          </section>
+
+          ${review ? `<section class="card"><div class="card-head"><h2>Review</h2></div><div class="stars">${stars(review.rating)}</div><p>${esc(review.text)}</p><small class="muted">${esc(review.source)} · ${fmtShort(review.receivedAt)}</small></section>` : ''}
+
+          <section class="card">
+            <div class="card-head"><h2>Activity</h2></div>
+            <form data-form="note" data-id="${b.id}" class="row gap"><input name="text" placeholder="Add a note…" required><button class="btn sm">Add</button></form>
+            <ul class="timeline">${acts.slice(0, 40).map(a => `<li class="t-${a.type}"><p>${esc(a.text)}</p><small>${fmtDateTime(a.at)}</small></li>`).join('')}</ul>
+          </section>
+        </div>
+      </div>`
+    };
+  }
+
+  /* ================= CLIENTS ================= */
+  function viewClients() {
+    const clients = DB.list('clients').sort((a, b) => W.clientName(a).localeCompare(W.clientName(b)));
+    return {
+      title: 'Clients', subtitle: `${clients.length} client${clients.length === 1 ? '' : 's'}`,
+      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search" data-filter=".client-row"></label><button class="btn primary sm" data-act="addClient">${icon('plus')} Client</button>`,
+      html: clients.length ? `<section class="card flush"><ul class="list">${clients.map(c => {
+        const bs = DB.list('bookings', b => b.clientId === c.id).sort((a, z) => (z.eventDate || '').localeCompare(a.eventDate || ''));
+        const spent = DB.list('payments', p => p.clientId === c.id).reduce((s, p) => s + +p.amount, 0);
+        return `<li class="client-row" data-search="${esc((W.clientName(c) + ' ' + (c.email || '') + ' ' + (c.phone || '') + ' ' + (c.instagram || '')).toLowerCase())}">
+          <a class="list-row" href="#/client/${c.id}"><div class="avatar">${esc((c.firstName || '?')[0])}${esc((c.lastName || '')[0] || '')}</div>
+          <div class="grow"><strong>${esc(W.clientName(c))}</strong><small>${esc(c.phone || '')}${c.email ? ' · ' + esc(c.email) : ''}</small></div>
+          <div class="right"><small>${bs.length} booking${bs.length === 1 ? '' : 's'}</small>${spent ? `<small>${money(spent)} paid</small>` : ''}</div>${bs[0] ? stageBadge(bs[0]) : ''}</a></li>`;
+      }).join('')}</ul></section>` : empty('No clients yet.', '<a class="btn primary" href="#/new">Add the first enquiry</a>')
+    };
+  }
+
+  function viewClient(id) {
+    const c = DB.get('clients', id);
+    if (!c) return { title: 'Client not found', back: '#/clients', html: empty('This client may have been deleted.') };
+    const bs = DB.list('bookings', b => b.clientId === c.id).sort((a, z) => (z.eventDate || '').localeCompare(a.eventDate || ''));
+    const photos = DB.list('photos', p => p.clientId === c.id);
+    const reviews = DB.list('reviews', r => r.clientId === c.id);
+    const spent = DB.list('payments', p => p.clientId === c.id).reduce((s, p) => s + +p.amount, 0);
+    const f = (name, label, type = 'text', span = '') => `<label class="${span}">${label}<input type="${type}" name="${name}" value="${esc(c[name] || '')}"></label>`;
+    return {
+      title: W.clientName(c), subtitle: `Client since ${fmtShort(c.createdAt)} · ${money(spent)} paid · ${esc(c.source || '')}`, back: '#/clients',
+      actions: `<a class="btn primary sm" href="#/new/${c.id}">${icon('plus')} New booking</a><button class="btn ghost sm" data-act="deleteClient" data-id="${c.id}">Delete</button>`,
+      html: `<div class="detail">
+        <div class="detail-main">
+          <section class="card"><div class="card-head"><h2>Details</h2></div>
+            <form data-form="client" data-id="${c.id}" class="form-grid">
+              ${f('firstName', 'First name')}${f('lastName', 'Last name')}${f('email', 'Email', 'email')}${f('phone', 'Phone', 'tel')}${f('instagram', 'Instagram')}${f('birthday', 'Birthday', 'date')}
+              <label>Skin type<select name="skinType">${['', 'Normal', 'Dry', 'Oily', 'Combination', 'Sensitive', 'Mature', 'Not sure'].map(o => `<option ${o === (c.skinType || '') ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+              ${f('shades', 'Shades / products used')}
+              <label class="span-2">Allergies & sensitivities<input name="allergies" value="${esc(c.allergies || '')}" placeholder="e.g. lash glue, fragrance"></label>
+              <label class="span-2">Private notes<textarea name="notes" rows="3">${esc(c.notes || '')}</textarea></label>
+              <label class="span-2 check"><input type="checkbox" name="marketingOk" ${c.marketingOk ? 'checked' : ''}> Happy to receive offers & updates</label>
+              <div class="span-2 row end"><button class="btn sm">Save client</button></div>
+            </form></section>
+          <section class="card"><div class="card-head"><h2>Photos</h2></div>
+            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}"><img data-photo="${p.id}" alt=""><span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet.')}</section>
+        </div>
+        <div class="detail-side">
+          <section class="card"><div class="card-head"><h2>Bookings</h2></div>
+            ${bs.length ? `<div class="deal-stack">${bs.map(bookingCard).join('')}</div>` : empty('No bookings yet.')}</section>
+          ${reviews.length ? `<section class="card"><div class="card-head"><h2>Reviews</h2></div>${reviews.map(r => `<div class="review"><div class="stars">${stars(r.rating)}</div><p>${esc(r.text)}</p></div>`).join('')}</section>` : ''}
+        </div></div>`
+    };
+  }
+
+  /* ================= CALENDAR ================= */
+  function viewCalendar() {
+    const td = today();
+    if (!state.calMonth) state.calMonth = td.slice(0, 7);
+    const [y, m] = state.calMonth.split('-').map(Number);
+    const first = new Date(y, m - 1, 1);
+    const start = addDays(first, -((first.getDay() + 6) % 7));        // Monday start
+    const items = {};
+    const push = (day, it) => { (items[day] = items[day] || []).push(it); };
+    DB.list('bookings', b => b.status !== 'lost').forEach(b => {
+      const c = W.clientOf(b);
+      if (b.eventDate) push(b.eventDate, { kind: 'event', cls: `s-${b.stage}`, tentative: W.idx(b.stage) < W.idx('booked'), text: W.clientName(c), sub: `${b.eventType || 'Event'}${b.readyBy ? ' · ready ' + fmtTime(b.readyBy) : ''}`, href: `#/booking/${b.id}`, time: b.readyBy || '' });
+      if (b.callAt && W.idx(b.stage) <= W.idx('call')) push(ymd(new Date(b.callAt)), { kind: 'call', cls: 'call', text: `Call ${c.firstName || ''}`, sub: fmtTime(toLocalInput(b.callAt).slice(11)), href: `#/booking/${b.id}`, time: toLocalInput(b.callAt).slice(11) });
+    });
+    DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day')).forEach(r => push(ymd(new Date(r.dueAt)), { kind: 'rem', cls: 'rem', text: r.title, sub: 'Reminder', href: r.bookingId ? `#/booking/${r.bookingId}` : '#/', time: '' }));
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = addDays(start, i); const key = ymd(d);
+      const its = (items[key] || []).sort((a, b) => (a.kind === 'event' ? 0 : 1) - (b.kind === 'event' ? 0 : 1));
+      cells.push(`<button class="day ${d.getMonth() !== m - 1 ? 'out' : ''} ${key === td ? 'today' : ''} ${key === state.calSelected ? 'sel' : ''}" data-act="calDay" data-day="${key}">
+        <span class="n">${d.getDate()}</span>
+        <div class="evs">${its.slice(0, 3).map(it => `<i class="ev ${it.cls} ${it.tentative ? 'tent' : ''}">${esc(it.text)}</i>`).join('')}${its.length > 3 ? `<i class="more">+${its.length - 3}</i>` : ''}</div>
+        ${its.length ? `<span class="dots">${its.slice(0, 4).map(it => `<b class="${it.cls}"></b>`).join('')}</span>` : ''}
+      </button>`);
+    }
+    const sel = (items[state.calSelected] || []).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+    return {
+      title: first.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }),
+      actions: `<button class="icon-btn" data-act="calNav" data-arg="-1">${icon('chevL')}</button><button class="btn ghost sm" data-act="calNav" data-arg="0">Today</button><button class="icon-btn" data-act="calNav" data-arg="1">${icon('chevR')}</button>`,
+      html: `<section class="card flush cal">
+          <div class="cal-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
+          <div class="cal-grid">${cells.join('')}</div>
+        </section>
+        <div class="legend"><span><b class="s-booked"></b>Booked</span><span><b class="s-enquiry tent"></b>Enquiry (not secured)</span><span><b class="call"></b>Phone call</span><span><b class="rem"></b>Reminder</span></div>
+        <section class="card">
+          <div class="card-head"><h2>${fmtDate(state.calSelected)}</h2><a class="btn sm" href="#/new?date=${state.calSelected}" data-act="newOnDate" data-day="${state.calSelected}">${icon('plus')} Booking</a></div>
+          ${sel.length ? `<ul class="list">${sel.map(it => `<li><a class="list-row" href="${it.href}"><span class="dot ${it.cls}"></span><div class="grow"><strong>${esc(it.text)}</strong><small>${esc(it.sub)}</small></div></a></li>`).join('')}</ul>` : empty('Nothing on this day — it’s free.')}
+        </section>`
+    };
+  }
+
+  /* ================= INVOICES ================= */
+  function viewInvoices() {
+    const all = DB.list('invoices').sort((a, b) => b.number.localeCompare(a.number));
+    const f = state.invoiceFilter;
+    const todayStr = today();
+    const isOverdue = i => i.status !== 'paid' && i.dueAt < todayStr;
+    const list = all.filter(i => f === 'all' || (f === 'overdue' ? isOverdue(i) : i.status === f));
+    const owing = all.filter(i => i.status !== 'paid').reduce((s, i) => s + i.total, 0);
+    const fy = (() => { const d = new Date(); const yr = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return [`${yr}-07-01`, `${yr + 1}-06-30`]; })();
+    const fyPaid = DB.list('payments', p => p.paidAt >= fy[0] && p.paidAt <= fy[1]).reduce((s, p) => s + +p.amount, 0);
+    return {
+      title: 'Invoices & payments',
+      actions: `<button class="btn ghost sm" data-act="exportCsv">Export CSV</button>`,
+      html: `<section class="stats three"><div class="stat"><span>Outstanding</span><strong>${money(owing)}</strong></div>
+        <div class="stat"><span>Overdue</span><strong>${all.filter(isOverdue).length}</strong></div>
+        <div class="stat"><span>Received this financial year</span><strong>${money(fyPaid)}</strong></div></section>
+        <div class="chips">${[['all', 'All'], ['sent', 'Unpaid'], ['overdue', 'Overdue'], ['paid', 'Paid']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-act="invFilter" data-arg="${k}">${l}</button>`).join('')}</div>
+        <section class="card flush">${list.length ? `<table class="table"><thead><tr><th>Invoice</th><th>Client</th><th>Type</th><th>Due</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
+        ${list.map(i => { const c = DB.get('clients', i.clientId) || {}; return `<tr data-href="#/invoice/${i.id}"><td><a href="#/invoice/${i.id}">${esc(i.number)}</a></td><td>${esc(W.clientName(c))}</td><td>${i.type === 'deposit' ? 'Deposit' : 'Final'}</td><td>${fmtShort(i.dueAt)}</td><td class="num">${money(i.total)}</td><td><span class="badge inv-${isOverdue(i) ? 'overdue' : i.status}">${isOverdue(i) ? 'overdue' : i.status}</span></td></tr>`; }).join('')}
+        </tbody></table>` : empty('No invoices here yet.')}</section>`
+    };
+  }
+
+  function viewInvoice(id) {
+    const inv = DB.get('invoices', id);
+    if (!inv) return { title: 'Invoice not found', back: '#/invoices', html: empty('Missing invoice.') };
+    const b = DB.get('bookings', inv.bookingId) || {}; const c = DB.get('clients', inv.clientId) || {}; const p = W.profile();
+    return {
+      title: `Invoice ${inv.number}`, back: b.id ? `#/booking/${b.id}` : '#/invoices',
+      actions: `<button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
+      html: `<article class="invoice">
+        <header><div>${avatarHtml(p, 'inv-logo')}<h2>${esc(p.businessName)}</h2><p>${esc(p.artistName)}${p.abn ? '<br>ABN ' + esc(p.abn) : ''}${p.phone ? '<br>' + esc(p.phone) : ''}${p.email ? '<br>' + esc(p.email) : ''}</p></div>
+          <div class="inv-meta"><h1>${p.gstRegistered ? 'Tax invoice' : 'Invoice'}</h1><p><b>${esc(inv.number)}</b><br>Issued ${fmtDate(inv.issuedAt)}<br>Due ${fmtDate(inv.dueAt)}</p><span class="badge inv-${inv.status}">${inv.status}</span></div></header>
+        <section class="bill"><h3>Bill to</h3><p>${esc(W.clientName(c))}${c.email ? '<br>' + esc(c.email) : ''}${c.phone ? '<br>' + esc(c.phone) : ''}</p>
+          ${b.eventDate ? `<h3>Booking</h3><p>${esc(b.eventType || '')} · ${fmtDate(b.eventDate)}${b.location ? '<br>' + esc(b.location) : ''}</p>` : ''}</section>
+        <table class="table"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
+          <tbody>${inv.items.map(i => `<tr><td>${esc(i.desc)}</td><td class="num">${i.qty}</td><td class="num">${money(i.price)}</td><td class="num">${money(i.qty * i.price)}</td></tr>`).join('')}</tbody>
+          <tfoot>${inv.gst ? `<tr><td colspan="3" class="num">GST included</td><td class="num">${money(inv.gst)}</td></tr>` : ''}<tr class="grand"><td colspan="3" class="num">Total ${inv.status === 'paid' ? 'paid' : 'due'}</td><td class="num">${money(inv.total)}</td></tr></tfoot></table>
+        <section class="pay"><h3>How to pay</h3><p>${[p.bankAccountName && 'Account name: ' + esc(p.bankAccountName), p.bsb && 'BSB: ' + esc(p.bsb), p.accountNumber && 'Account: ' + esc(p.accountNumber), p.payId && 'PayID: ' + esc(p.payId)].filter(Boolean).join('<br>') || '<em>Add payment details in Profile → Business settings.</em>'}<br>Reference: ${esc(inv.number)}</p>
+          ${p.cancellationPolicy ? `<p class="small muted">${esc(p.cancellationPolicy)}</p>` : ''}</section>
+        <footer>Thank you for choosing ${esc(p.businessName)} ♡</footer>
+      </article>`
+    };
+  }
+
+  /* ================= REVIEWS ================= */
+  function viewReviews() {
+    const rs = DB.list('reviews').sort((a, b) => (b.receivedAt || '').localeCompare(a.receivedAt || ''));
+    const avg = rs.length ? rs.reduce((s, r) => s + r.rating, 0) / rs.length : 0;
+    const waiting = DB.list('bookings', b => b.stage === 'review' && b.status !== 'lost');
+    return {
+      title: 'Reviews',
+      html: `<section class="stats three"><div class="stat"><span>Average rating</span><strong>${rs.length ? avg.toFixed(1) + ' ★' : '—'}</strong></div>
+        <div class="stat"><span>Reviews</span><strong>${rs.length}</strong></div><div class="stat"><span>Waiting on a review</span><strong>${waiting.length}</strong></div></section>
+        ${waiting.length ? `<section class="card"><div class="card-head"><h2>Waiting on</h2></div><div class="deal-stack">${waiting.map(bookingCard).join('')}</div></section>` : ''}
+        <section class="card"><div class="card-head"><h2>All reviews</h2></div>
+        ${rs.length ? rs.map(r => { const c = DB.get('clients', r.clientId) || {}; return `<div class="review"><div class="row between"><strong>${esc(W.clientName(c))}</strong><div class="stars">${stars(r.rating)}</div></div><p>${esc(r.text)}</p><small class="muted">${esc(r.source)} · ${fmtDate(r.receivedAt)}${r.consentToShare ? ' · OK to share on website' : ''}</small></div>`; }).join('') : empty('No reviews yet. They’ll show here once you record them on a booking.')}</section>`
+    };
+  }
+
+  /* ================= PROFILE & SETTINGS ================= */
+  function viewProfile() {
+    const p = W.profile(); const u = Auth.current;
+    const inp = (name, label, type = 'text', extra = '') => `<label>${label}<input type="${type}" name="${name}" value="${esc(p[name] ?? '')}" ${extra}></label>`;
+    const users = Auth.team;
+    return {
+      title: 'Profile & settings',
+      html: `<div class="detail">
+        <div class="detail-main">
+          <section class="card profile-hero">
+            <label class="avatar-up">${avatarHtml(p, 'big-avatar')}<input type="file" accept="image/*" hidden data-change="avatar"><span>Change photo</span></label>
+            <div><h2>${esc(p.artistName)}</h2><p class="muted">${esc(p.tagline || '')}</p><p class="small">${esc(p.instagram || '')}${p.serviceArea ? ' · ' + esc(p.serviceArea) : ''}</p></div>
+          </section>
+          <section class="card"><div class="card-head"><h2>Business profile</h2></div>
+            <form data-form="profile" class="form-grid">
+              ${inp('artistName', 'Artist name')}${inp('businessName', 'Business name')}
+              ${inp('tagline', 'Tagline')}${inp('serviceArea', 'Service area', 'text', 'placeholder="e.g. Gold Coast & Brisbane"')}
+              ${inp('email', 'Business email', 'email')}${inp('phone', 'Business phone', 'tel')}
+              ${inp('instagram', 'Instagram')}${inp('website', 'Website', 'url')}
+              ${inp('bookingLink', 'Booking / enquiry link', 'url')}${inp('abn', 'ABN')}
+              <label class="span-2">Bio<textarea name="bio" rows="3">${esc(p.bio)}</textarea></label>
+              <div class="span-2 row end"><button class="btn sm">Save profile</button></div>
+            </form></section>
+          <section class="card"><div class="card-head"><h2>Payments, policies & reminders</h2></div>
+            <form data-form="profile" class="form-grid">
+              ${inp('depositPercent', 'Deposit %', 'number', 'min="0" max="100"')}${inp('depositDueDays', 'Deposit due within (days)', 'number', 'min="0"')}
+              ${inp('paymentTermsDays', 'Final invoice due within (days)', 'number', 'min="0"')}
+              <label class="check"><input type="checkbox" name="gstRegistered" ${p.gstRegistered ? 'checked' : ''}> Registered for GST (prices include GST)</label>
+              ${inp('bankAccountName', 'Account name')}${inp('bsb', 'BSB')}${inp('accountNumber', 'Account number')}${inp('payId', 'PayID')}
+              ${inp('reviewLink', 'Review link (Google etc.)', 'url')}${inp('reminderOffsets', 'Reminder days before event', 'text', 'placeholder="14,7,2,1"')}
+              <label class="span-2">Deposit & cancellation policy<textarea name="cancellationPolicy" rows="3">${esc(p.cancellationPolicy)}</textarea></label>
+              <div class="span-2 row end"><button class="btn sm">Save settings</button></div>
+            </form></section>
+          <section class="card"><div class="card-head"><h2>Services & pricing</h2></div>
+            <table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
+            ${W.services().map(s => `<tr>
+              <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
+              <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
+              <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
+              <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
+              <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
+              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('')}</tbody></table>
+            <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
+          </section>
+        </div>
+        <div class="detail-side">
+          <section class="card"><div class="card-head"><h2>Your account</h2></div>
+            <form data-form="me" class="stack"><label>Name<input name="name" value="${esc(u.name)}" required></label><label>Email (sign-in)<input type="email" name="email" value="${esc(u.email)}" required></label><button class="btn sm">Save</button></form>
+            <form data-form="password" class="stack"><h3>Change password</h3><label>Current password<input type="password" name="old" required></label><label>New password<input type="password" name="next" minlength="8" required></label><button class="btn sm">Update password</button></form>
+          </section>
+          <section class="card"><div class="card-head"><h2>Team accounts</h2></div>
+            <ul class="list">${users.map(x => `<li class="list-row"><div class="avatar">${esc(x.name[0] || '?')}</div><div class="grow"><strong>${esc(x.name)}</strong><small>${esc(x.email)} · ${esc(x.role)}</small></div></li>`).join('')}</ul>
+            ${u.role === 'owner' ? `<button class="btn sm" data-act="addUser">${icon('plus')} Add an assistant</button>` : ''}
+          </section>
+          <section class="card"><div class="card-head"><h2>Your data</h2></div>
+            <p class="small muted">Everything is saved securely in Supabase and syncs across every device you sign in on. Website enquiries arrive here automatically. Photos are stored privately.</p>
+            <div class="stack">
+              <button class="btn sm" data-act="exportData">Export backup (.json)</button>
+              <label class="btn sm ghost">Import backup<input type="file" accept="application/json,.json" hidden data-change="importData"></label>
+              ${u.role === 'owner' ? '<button class="btn sm danger-ghost" data-act="wipeData">Delete all client data</button>' : ''}
+            </div></section>
+          <button class="btn ghost block" data-act="logout">${icon('logout')} Sign out</button>
+        </div></div>`
+    };
+  }
+
+  /* ================= ENQUIRY FORMS ================= */
+  function enquiryFields({ internal = false, client = null, date = '' } = {}) {
+    const svc = W.services(true);
+    const cats = [...new Set(svc.map(s => s.category || 'Other'))];
+    const v = k => esc(client?.[k] || '');
+    return `
+      <fieldset><legend>About you</legend><div class="form-grid">
+        <label>First name *<input name="firstName" required value="${v('firstName')}" autocomplete="given-name"></label>
+        <label>Last name<input name="lastName" value="${v('lastName')}" autocomplete="family-name"></label>
+        <label>Email ${internal ? '' : '*'}<input type="email" name="email" ${internal ? '' : 'required'} value="${v('email')}" autocomplete="email"></label>
+        <label>Mobile ${internal ? '' : '*'}<input type="tel" name="phone" ${internal ? '' : 'required'} value="${v('phone')}" autocomplete="tel"></label>
+        <label class="span-2">Instagram (optional)<input name="instagram" value="${v('instagram')}" placeholder="@yourhandle"></label>
+      </div></fieldset>
+      <fieldset><legend>Your event</legend><div class="form-grid">
+        <label>What’s the occasion? *<select name="eventType" required><option value="">Choose…</option>${W.EVENT_TYPES.map(e => `<option>${esc(e)}</option>`).join('')}</select></label>
+        <label>Date *<input type="date" name="eventDate" required min="${internal ? '' : today()}" value="${esc(date)}"></label>
+        <label>What time do you need to be ready?<input type="time" name="readyBy"></label>
+        <label>How many people need makeup?<input type="number" name="partySize" min="1" value="1"></label>
+        <label class="span-2">Where are you getting ready?<input name="location" placeholder="Venue, hotel or suburb"></label>
+      </div></fieldset>
+      <fieldset><legend>Services you’re interested in</legend>
+        ${cats.map(cat => `<div class="svc-group"><h4>${esc(cat)}</h4><div class="svc-pick">${svc.filter(s => (s.category || 'Other') === cat).map(s => `<label class="pick"><input type="checkbox" name="services[]" value="${s.id}"><span>${esc(s.name)}<small>from ${money(s.price)}</small></span></label>`).join('')}</div></div>`).join('')}
+        <label>Would you like a trial?<select name="trial"><option value="">—</option><option>Yes</option><option>No</option><option>Not sure</option></select></label>
+      </fieldset>
+      <fieldset><legend>Your skin & look</legend><div class="form-grid">
+        <label>Skin type<select name="skinType"><option value="">—</option>${['Normal', 'Dry', 'Oily', 'Combination', 'Sensitive', 'Mature', 'Not sure'].map(o => `<option>${o}</option>`).join('')}</select></label>
+        <label>Allergies or sensitivities<input name="allergies" placeholder="e.g. lash glue, fragrance"></label>
+        <label class="span-2">Describe the look you’re after<textarea name="look" rows="3" placeholder="Soft glam, natural, bold lip… links to Pinterest/Instagram welcome"></textarea></label>
+        ${internal || Auth.isStaff() ? '<label class="span-2">Inspiration photos (optional)<input type="file" name="photos" accept="image/*" multiple></label>' : ''}
+      </div></fieldset>
+      <fieldset><legend>Last few questions</legend><div class="form-grid">
+        <label>How did you find ${esc(W.profile().artistName.split(' ')[0])}?<select name="heardFrom"><option value="">—</option>${['Instagram', 'TikTok', 'Google', 'Friend / referral', 'Wedding vendor', 'Facebook', 'Other'].map(o => `<option>${o}</option>`).join('')}</select></label>
+        <label>Best time for a quick call?<input name="callPref" placeholder="e.g. weekday evenings"></label>
+        <label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>
+        ${internal ? '' : '<label class="span-2 check"><input type="checkbox" name="consent" required> I’m happy to be contacted about my enquiry</label>'}
+      </div></fieldset>`;
+  }
+
+  function viewNewEnquiry(arg) {
+    const client = arg ? DB.get('clients', arg) : null;
+    const date = new URLSearchParams(location.hash.split('?')[1] || '').get('date') || '';
+    return {
+      title: client ? `New booking · ${W.clientName(client)}` : 'New enquiry', back: client ? `#/client/${client.id}` : '#/pipeline',
+      subtitle: 'Fill in what you know — everything can be edited later.',
+      html: `<form data-form="enquiry" data-mode="internal" class="card enquiry-form">${enquiryFields({ internal: true, client, date })}
+        <div class="row end gap"><a class="btn ghost" href="#/pipeline">Cancel</a><button class="btn primary">Create enquiry</button></div></form>`
+    };
+  }
+
+  function renderPublicEnquiry() {
+    const p = W.profile();
+    $app().innerHTML = `<div class="public">
+      <header class="public-hero">${avatarHtml(p, 'big-avatar')}<h1>${esc(p.businessName)}</h1><p>${esc(p.tagline || '')}${p.serviceArea ? ' · ' + esc(p.serviceArea) : ''}</p></header>
+      <main id="public-main"><form data-form="enquiry" data-mode="public" class="card enquiry-form">
+        <h2>Booking enquiry</h2><p class="muted">Tell me a little about your day and I’ll be in touch within 24 hours to arrange a quick call.</p>
+        ${enquiryFields()}
+        <button class="btn primary block">Send enquiry</button>
+      </form></main>
+      <footer class="public-foot">${esc(p.instagram || '')}${Auth.current ? ' · <a href="#/">Back to dashboard</a>' : ''}</footer></div>`;
+  }
+
+  /* ================= AUTH SCREENS ================= */
+  function authFrame(inner) {
+    const p = W.profile();
+    $app().innerHTML = `<div class="auth"><div class="auth-card">${avatarHtml(p, 'big-avatar')}<h1>${esc(p.businessName)}</h1>${inner}</div></div>`;
+  }
+  function renderSignup() {
+    authFrame(`<p class="muted">Create your account. The first account becomes the studio owner; anyone after that needs the owner to let them in.</p>
+      <form data-form="signup" class="stack">
+        <label>Your name<input name="name" required autocomplete="name"></label>
+        <label>Email<input type="email" name="email" required autocomplete="email"></label>
+        <label>Password<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+        <label>Confirm password<input type="password" name="confirm" required minlength="8" autocomplete="new-password"></label>
+        <button class="btn primary block">Create account</button>
+      </form>
+      <p class="small">Already have an account? <a href="#/">Sign in</a></p>`);
+  }
+  function renderLogin() {
+    authFrame(`<p class="muted">Sign in to your client studio</p>
+      <form data-form="login" class="stack">
+        <label>Email<input type="email" name="email" required autocomplete="email"></label>
+        <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+        <button class="btn primary block">Sign in</button>
+      </form>
+      <p class="small"><button class="link" data-act="forgot">Forgot password?</button> · <a href="#/signup">Create an account</a></p>`);
+  }
+  function renderPending() {
+    authFrame(`<p>You’re signed in as <strong>${esc(Auth.current.email)}</strong>, but this account hasn’t been given access yet.</p>
+      <p class="small muted">Ask the studio owner to add this email under Profile → Team accounts, then refresh this page.</p>
+      <div class="stack"><button class="btn primary" data-act="recheck">I’ve been added — check again</button><button class="btn ghost" data-act="logout">Sign out</button></div>`);
+  }
+  function renderNewPassword() {
+    authFrame(`<p class="muted">Choose a new password</p>
+      <form data-form="newPassword" class="stack">
+        <label>New password<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+        <button class="btn primary block">Save password</button>
+      </form>`);
+  }
+
+  /* ================= PHOTOS ================= */
+  async function loadPhotos() {
+    for (const img of document.querySelectorAll('img[data-photo]')) {
+      const id = img.dataset.photo;
+      if (!blobCache.has(id)) blobCache.set(id, await DB.getBlob(id));
+      if (blobCache.get(id)) img.src = blobCache.get(id);
+    }
+  }
+
+  /* ================= MESSAGE COMPOSER ================= */
+  async function openComposer(bookingId, key, reminderId) {
+    const b = DB.get('bookings', bookingId); const c = W.clientOf(b);
+    const msg = W.renderTemplate(key, b);
+    let channel = 'copied';
+    await modal({
+      title: W.TEMPLATES[key].label, wide: true, submitLabel: 'Mark as sent',
+      body: `<p class="muted small">To: ${esc(W.clientName(c))} · ${esc(c.email || 'no email')} · ${esc(c.phone || 'no mobile')}</p>
+        <label>Subject<input name="subject" value="${esc(msg.subject)}"></label>
+        <label>Message<textarea name="body" rows="14">${esc(msg.body)}</textarea></label>
+        <div class="row gap wrap"><button type="button" class="btn sm" data-cmp="copy">Copy</button>
+          <button type="button" class="btn sm" data-cmp="email" ${c.email ? '' : 'disabled'}>${icon('mail')} Open in email</button>
+          <button type="button" class="btn sm" data-cmp="sms" ${c.phone ? '' : 'disabled'}>${icon('message')} Open as text</button></div>
+        <p class="small muted">Opens your email or messages app with this filled in. Click “Mark as sent” once it’s gone so it’s logged.</p>`,
+      onOpen(form) {
+        form.addEventListener('click', async e => {
+          const btn = e.target.closest('[data-cmp]'); if (!btn) return;
+          const subject = form.subject.value, body = form.body.value;
+          if (btn.dataset.cmp === 'copy') { await copyText(body); channel = 'copy & paste'; toast('Copied'); }
+          if (btn.dataset.cmp === 'email') { channel = 'email'; window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`; }
+          if (btn.dataset.cmp === 'sms') { channel = 'text'; window.location.href = `sms:${encodeURIComponent((c.phone || '').replace(/\s/g, ''))}?&body=${encodeURIComponent(body)}`; }
+        });
+      },
+      async onSubmit(d) {
+        await W.logMessage(b, key, d.subject, channel);
+        if (reminderId) await W.completeReminder(reminderId);
+        toast('Logged as sent');
+      }
+    });
+    rerender();
+  }
+
+  async function tryAdvance(id) {
+    let r = await W.advance(id);
+    if (!r.ok && r.canOverride) {
+      const ok = await confirmBox(`Before moving on: ${r.reasons.join('; ')}. Continue anyway?`, 'Continue anyway');
+      if (!ok) return null;
+      r = await W.advance(id, { override: true });
+    }
+    if (!r.ok) { toast(r.reasons.join(' · '), 'error'); return null; }
+    toast(`Moved to ${r.stage.label}`);
+    return r;
+  }
+
+  /* ================= ACTIONS (buttons) ================= */
+  const Actions = {
+    async logout() { await Auth.logout(); location.hash = '#/'; render(); },
+    async recheck() { await Auth.loadStaff(); if (Auth.isStaff()) await afterSignIn(); else toast('Still waiting for access', 'error'); },
+    async forgot() {
+      const email = document.querySelector('form[data-form=login] [name=email]')?.value;
+      await Auth.sendReset(email);
+      toast('Check your email for a reset link');
+    },
+    reloadForm() { renderPublicEnquiry(); window.scrollTo(0, 0); },
+    toggleLost() { state.showLost = !state.showLost; rerender(); },
+    tpl(d) { return openComposer(d.id, d.arg); },
+    async allTemplates(d) {
+      const key = await modal({ title: 'Message templates', hideSubmit: true, cancelLabel: 'Close',
+        body: `<div class="tpl-list">${Object.entries(W.TEMPLATES).map(([k, v]) => `<button type="button" class="tpl" data-key="${k}">${icon('message')}${esc(v.label)} <small class="muted">· ${esc(W.stage(v.stage).short)}</small></button>`).join('')}</div>`,
+        onOpen(form, close) { form.addEventListener('click', e => { const b = e.target.closest('[data-key]'); if (b) close(b.dataset.key); }); } });
+      if (key) openComposer(d.id, key);
+    },
+    async scheduleCall(d) {
+      const b = DB.get('bookings', d.id); const def = b.callAt || W.daysFromNow(1, '17:30');
+      await modal({ title: 'Schedule phone call', submitLabel: 'Schedule call',
+        body: `<label>Date & time<input type="datetime-local" name="at" required value="${toLocalInput(def)}"></label>
+          ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
+          <label>Note (optional)<input name="note" placeholder="e.g. she'll call you"></label>`,
+        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at).toISOString(), f.note); toast('Call scheduled'); } });
+      rerender();
+    },
+    async logCall(d) {
+      const b = DB.get('bookings', d.id);
+      await modal({ title: b.stage === 'updates' ? 'Add an update' : 'Call notes', submitLabel: 'Save notes', wide: true,
+        body: `<label>Notes<textarea name="notes" rows="6" required placeholder="Look, timings, number of people, trial, budget, parking…"></textarea></label>
+          <p class="small muted">Update anything that changed:</p>
+          <div class="form-grid"><label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
+          <label>Ready by<input type="time" name="readyBy" value="${esc(b.readyBy)}"></label>
+          <label>Location<input name="location" value="${esc(b.location)}"></label>
+          <label>People<input type="number" min="1" name="partySize" value="${esc(b.partySize || 1)}"></label></div>`,
+        async onSubmit(f) { await W.logCall(b, f.notes, f); toast(b.stage === 'call' ? 'Notes saved — now build the quote' : 'Saved'); } });
+      rerender();
+      if (DB.get('bookings', d.id).stage === 'updates') document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' });
+    },
+    async sendQuote(d) {
+      const r = await tryAdvance(d.id);
+      rerender();
+      if (r) openComposer(d.id, 'quote');
+    },
+    async advance(d) {
+      const b = DB.get('bookings', d.id);
+      const from = b.stage;
+      const r = await tryAdvance(d.id); rerender();
+      if (r && from === 'day') openComposer(d.id, 'final_invoice');
+      if (r && from === 'updates') openComposer(d.id, 'quote');
+    },
+    async back(d) { await W.moveBack(d.id); toast('Moved back a step'); rerender(); },
+    async payment(d) {
+      const b = DB.get('bookings', d.id); const t = W.totals(b);
+      const type = d.arg || 'final';
+      const amount = type === 'deposit' ? Math.max(0, t.deposit - t.depositPaid) : t.balance;
+      await modal({ title: 'Record payment', submitLabel: 'Save payment',
+        body: `<div class="form-grid"><label>Type<select name="type">${['deposit', 'final', 'other'].map(x => `<option ${x === type ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+          <label>Amount<input type="number" step="0.01" min="0" name="amount" value="${amount || ''}" required></label>
+          <label>Method<select name="method">${W.PAY_METHODS.map(m => `<option>${m}</option>`).join('')}</select></label>
+          <label>Date received<input type="date" name="paidAt" value="${today()}"></label>
+          <label class="span-2">Reference (optional)<input name="reference"></label></div>`,
+        async onSubmit(f) {
+          const r = await W.recordPayment(b, f);
+          toast(r.advancedTo ? `Payment saved — moved to ${r.advancedTo.label}` : 'Payment saved');
+          if (r.advancedTo?.key === 'booked') setTimeout(() => openComposer(b.id, 'deposit_received'), 50);
+          if (r.advancedTo?.key === 'review') setTimeout(() => openComposer(b.id, 'review_request'), 50);
+        } });
+      rerender();
+    },
+    async deletePayment(d) { if (await confirmBox('Remove this payment?', 'Remove', true)) { await W.deletePayment(d.id); rerender(); } },
+    async addReview(d) {
+      const b = DB.get('bookings', d.id);
+      await modal({ title: 'Record review', submitLabel: 'Save review',
+        body: `<div class="rating">${[5, 4, 3, 2, 1].map(n => `<input type="radio" name="rating" id="r${n}" value="${n}" ${n === 5 ? 'checked' : ''}><label for="r${n}">★</label>`).join('')}</div>
+          <label>Review text<textarea name="text" rows="4" placeholder="Paste what they wrote"></textarea></label>
+          <label>Where<select name="source">${['Google', 'Instagram', 'Facebook', 'Direct message', 'Website'].map(s => `<option>${s}</option>`).join('')}</select></label>
+          <label class="check"><input type="checkbox" name="consent" checked> OK to share on the website</label>`,
+        async onSubmit(f) { const r = await W.addReview(b, f); toast(r.advancedTo ? 'Review saved — booking complete!' : 'Review saved'); } });
+      rerender();
+    },
+    photo() { document.querySelector('[data-change="photos"]')?.click(); },
+    async viewPhoto(d) {
+      const p = DB.get('photos', d.id); const src = await DB.getBlob(d.id);
+      const res = await modal({ title: `${p.kind[0].toUpperCase() + p.kind.slice(1)} photo`, wide: true, submitLabel: 'Delete photo', danger: true, cancelLabel: 'Close',
+        body: `<img class="photo-full" src="${src}" alt=""><p class="small muted">${esc(p.caption || '')} ${fmtDate(p.createdAt)}</p><a class="btn sm" download="${esc((p.fileName || 'photo').replace(/\.\w+$/, ''))}.jpg" href="${src}">Download</a>`,
+        onSubmit: () => 'delete' });
+      if (res === 'delete' && await confirmBox('Delete this photo?', 'Delete', true)) { await W.deletePhoto(d.id); blobCache.delete(d.id); rerender(); }
+    },
+    async remDone(d) { await W.completeReminder(d.id); toast('Done'); rerender(); },
+    async remSkip(d) { await W.completeReminder(d.id, 'skipped'); rerender(); },
+    remSend(d) { const r = DB.get('reminders', d.id); return openComposer(r.bookingId, r.templateKey, r.id); },
+    async addReminder(d) {
+      const b = DB.get('bookings', d.id);
+      await modal({ title: 'Add reminder', submitLabel: 'Add reminder',
+        body: `<label>What<input name="title" required placeholder="e.g. Order extra lashes"></label>
+          <label>When<input type="datetime-local" name="dueAt" required value="${toLocalInput(W.daysFromNow(1, '09:00'))}"></label>
+          <label>Message template (optional)<select name="templateKey"><option value="">None</option>${Object.entries(W.TEMPLATES).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}</select></label>`,
+        async onSubmit(f) { await W.addReminder(b, { title: f.title, dueAt: new Date(f.dueAt).toISOString(), templateKey: f.templateKey }); toast('Reminder added'); } });
+      rerender();
+    },
+    async removeLine(d) {
+      const b = DB.get('bookings', d.id); const lines = [...(b.lines || [])]; lines.splice(+d.i, 1);
+      await W.saveBooking(b, { lines }, 'Quote updated'); rerender();
+    },
+    async bookingMenu(d) {
+      const b = DB.get('bookings', d.id);
+      const choice = await modal({ title: 'Booking options', hideSubmit: true, cancelLabel: 'Close',
+        body: `<div class="stack">${b.status === 'lost' ? '<button type="button" class="btn" data-pick="reopen">Reopen booking</button>' : '<button type="button" class="btn" data-pick="lost">Mark as lost</button>'}
+          <button type="button" class="btn" data-pick="client">Open client profile</button>
+          <button type="button" class="btn danger-ghost" data-pick="delete">Delete booking</button></div>`,
+        onOpen(form, close) { form.addEventListener('click', e => { const p = e.target.closest('[data-pick]'); if (p) close(p.dataset.pick); }); } });
+      if (choice === 'reopen') return Actions.reopen(d);
+      if (choice === 'client') return go(`#/client/${b.clientId}`);
+      if (choice === 'lost') {
+        await modal({ title: 'Mark as lost', submitLabel: 'Mark lost', danger: true,
+          body: `<label>Reason<select name="reason">${['Date unavailable', 'Went with someone else', 'Over budget', 'Event cancelled', 'No response', 'Other'].map(r => `<option>${r}</option>`).join('')}</select></label>`,
+          async onSubmit(f) { await W.markLost(b, f.reason); } });
+        rerender();
+      }
+      if (choice === 'delete' && await confirmBox('Delete this booking and its invoices, photos and history? This can’t be undone.', 'Delete', true)) {
+        await W.deleteBooking(b); toast('Booking deleted'); go('#/pipeline');
+      }
+    },
+    async reopen(d) { await W.reopen(d.id); toast('Reopened'); rerender(); },
+    async addClient() {
+      await modal({ title: 'New client', submitLabel: 'Add client',
+        body: `<div class="form-grid"><label>First name<input name="firstName" required></label><label>Last name<input name="lastName"></label>
+          <label>Email<input type="email" name="email"></label><label>Mobile<input type="tel" name="phone"></label>
+          <label class="span-2">Instagram<input name="instagram"></label></div>`,
+        async onSubmit(f) { const c = await DB.save('clients', { ...f, source: 'Added manually' }); setTimeout(() => go(`#/client/${c.id}`)); } });
+    },
+    async deleteClient(d) {
+      const c = DB.get('clients', d.id);
+      if (await confirmBox(`Delete ${W.clientName(c)} and all their bookings, invoices and photos?`, 'Delete client', true)) { await W.deleteClient(c); toast('Client deleted'); go('#/clients'); }
+    },
+    calNav(d) {
+      if (d.arg === '0') { state.calMonth = today().slice(0, 7); state.calSelected = today(); }
+      else { const [y, m] = state.calMonth.split('-').map(Number); const n = new Date(y, m - 1 + (+d.arg), 1); state.calMonth = `${n.getFullYear()}-${pad(n.getMonth() + 1)}`; }
+      rerender();
+    },
+    calDay(d) { state.calSelected = d.day; rerender(); },
+    newOnDate(d) { location.hash = `#/new?date=${d.day}`; },
+    invFilter(d) { state.invoiceFilter = d.arg; rerender(); },
+    print() { window.print(); },
+    exportCsv() {
+      const rows = [['Invoice', 'Client', 'Type', 'Issued', 'Due', 'Status', 'Total']];
+      DB.list('invoices').forEach(i => rows.push([i.number, W.clientName(DB.get('clients', i.clientId) || {}), i.type, i.issuedAt, i.dueAt, i.status, i.total.toFixed(2)]));
+      download(`invoices-${today()}.csv`, rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+    },
+    async deleteService(d) { if (await confirmBox('Delete this service? Existing quotes keep their lines.', 'Delete', true)) { await DB.remove('services', d.id); rerender(); } },
+    async addUser() {
+      await modal({ title: 'Add an assistant', submitLabel: 'Give access',
+        body: `<p class="small muted">First ask them to open this site and choose “Create an account”. Then enter the same email here to let them in.</p>
+          <label>Name<input name="name" required></label><label>Their account email<input type="email" name="email" required></label>`,
+        async onSubmit(f) { await Auth.addStaff(f.email, f.name); toast('Access granted'); } });
+      rerender();
+    },
+    async exportData() {
+      const data = await DB.exportAll();
+      download(`chanel-monroe-crm-backup-${today()}.json`, JSON.stringify(data));
+      toast('Backup downloaded');
+    },
+    async wipeData() {
+      if (!await confirmBox('Delete every client, booking, invoice and photo? Your account, profile and services are kept.', 'Delete everything', true)) return;
+      for (const s of ['clients', 'bookings', 'payments', 'invoices', 'reminders', 'photos', 'reviews', 'activity'])
+        for (const r of DB.list(s)) await DB.remove(s, r.id);
+      blobCache.clear(); toast('All client data deleted'); go('#/');
+    }
+  };
+
+  /* ================= FORMS ================= */
+  const Forms = {
+    async signup(f) {
+      const res = await Auth.signup(f);
+      if (res === 'confirm-email') {
+        authFrame(`<h2>Check your email</h2><p>We’ve sent a confirmation link to <strong>${esc(f.email)}</strong>. Click it, then come back here and sign in.</p><a class="btn primary block" href="#/">Back to sign in</a>`);
+        return;
+      }
+      if (Auth.isStaff()) { await afterSignIn(); if (Auth.current.role === 'owner' && !DB.setting('profileTouched')) { await W.saveProfile({ artistName: f.name }); await DB.setSetting('profileTouched', true); } toast('Welcome! Your studio is ready'); }
+      location.hash = '#/'; render();
+    },
+    async login(f) {
+      await Auth.login(f.email, f.password);
+      if (Auth.isStaff()) await afterSignIn();
+      location.hash = '#/'; render();
+    },
+    async newPassword(f) { await Auth.setNewPassword(f.password); toast('Password updated'); await Auth.loadStaff(); if (Auth.isStaff()) await afterSignIn(); location.hash = '#/'; render(); },
+    async enquiry(f, form) {
+      const files = [...(f.photos || [])];
+      const internal = form.dataset.mode === 'internal';
+      let b = null;
+      if (internal || Auth.isStaff()) {
+        b = await W.createEnquiry(f, { source: internal ? 'Added manually' : 'Enquiry form', photos: files });
+        if (internal) { toast('Enquiry created'); go(`#/booking/${b.id}`); return; }
+      } else {
+        await submitPublicEnquiry(f);       // goes to the website enquiries table → database trigger creates the CRM booking
+      }
+      const p = W.profile();
+      document.getElementById('public-main').innerHTML = `<div class="card thanks"><h2>Thank you, ${esc(f.firstName)}! ♡</h2>
+        <p>Your enquiry for ${fmtDate(f.eventDate)} has been received. ${esc(p.artistName.split(' ')[0])} will be in touch within 24 hours to arrange a quick call.</p>
+        <p class="muted">In the meantime, come say hi on Instagram ${esc(p.instagram || '')}.</p>
+        ${b ? `<a class="btn primary" href="#/booking/${b.id}">View in CRM</a>` : '<a class="btn" href="#/enquire" data-act="reloadForm">Send another enquiry</a>'}</div>`;
+      window.scrollTo(0, 0);
+    },
+    async details(f, form) {
+      const b = DB.get('bookings', form.dataset.id);
+      await W.saveBooking(b, { eventType: f.eventType, eventDate: f.eventDate, readyBy: f.readyBy, startTime: f.startTime, location: f.location,
+        partySize: +f.partySize || 1, answers: { ...(b.answers || {}), trial: f.trial, look: f.look } }, 'Event details updated');
+      toast('Details saved'); rerender();
+    },
+    async addLine(f, form) {
+      const b = DB.get('bookings', form.dataset.id); const s = DB.get('services', f.serviceId); if (!s) return;
+      await W.saveBooking(b, { lines: [...(b.lines || []), { serviceId: s.id, name: s.name, qty: +f.qty || 1, price: s.price }] }, `Added ${s.name} to quote`);
+      rerender();
+    },
+    async note(f, form) { const b = DB.get('bookings', form.dataset.id); await W.log(b, 'note', f.text); rerender(); },
+    async client(f, form) {
+      const c = DB.get('clients', form.dataset.id);
+      await DB.save('clients', { ...c, ...f }); toast('Client saved'); rerender();
+    },
+    async profile(f) {
+      if ('depositPercent' in f) { f.depositPercent = +f.depositPercent || 0; f.paymentTermsDays = +f.paymentTermsDays || 0; f.depositDueDays = +f.depositDueDays || 0; }
+      await W.saveProfile(f); toast('Saved'); rerender();
+    },
+    async addService(f, form) {
+      await DB.save('services', { name: f.name, price: +f.price || 0, category: 'Other', durationMins: 0, active: true, sort: DB.list('services').length });
+      form.reset(); rerender();
+    },
+    async me(f) { const r = await Auth.updateMe(f); toast(r === 'confirm-email' ? 'Check your new email to confirm the change' : 'Account updated'); rerender(); },
+    async password(f, form) { await Auth.changePassword(f.old, f.next); form.reset(); toast('Password updated'); }
+  };
+
+  /* ================= CHANGE HANDLERS (inline edits, uploads) ================= */
+  const Changes = {
+    async line(el) {
+      const b = DB.get('bookings', el.dataset.id); const lines = (b.lines || []).map(l => ({ ...l }));
+      const l = lines[+el.dataset.i]; if (!l) return;
+      l[el.dataset.field] = el.dataset.field === 'name' ? el.value : (+el.value || 0);
+      await W.saveBooking(b, { lines }, 'Quote updated'); rerender();
+    },
+    async money(el) {
+      const b = DB.get('bookings', el.dataset.id);
+      await W.saveBooking(b, { [el.dataset.field]: el.value === '' ? '' : +el.value }, 'Quote updated'); rerender();
+    },
+    async photos(el) {
+      const b = DB.get('bookings', el.dataset.id);
+      const kind = document.querySelector('input[name=photoKind]:checked')?.value || 'day';
+      const files = [...el.files]; if (!files.length) return;
+      toast(`Uploading ${files.length} photo${files.length > 1 ? 's' : ''}…`);
+      for (const f of files) await W.addPhoto(b, f, kind);
+      await W.log(b, 'photo', `${files.length} ${kind} photo${files.length > 1 ? 's' : ''} added`);
+      rerender();
+    },
+    async avatar(el) {
+      const f = el.files[0]; if (!f) return;
+      await W.saveProfile({ avatar: await UI.resizeImage(f, 400, 0.85) }); rerender();
+    },
+    async svc(el) {
+      const s = DB.get('services', el.dataset.id); const k = el.dataset.field;
+      const v = el.type === 'checkbox' ? el.checked : (k === 'price' || k === 'durationMins') ? (+el.value || 0) : el.value;
+      await DB.save('services', { ...s, [k]: v }); toast('Saved');
+    },
+    async importData(el) {
+      const f = el.files[0]; if (!f) return;
+      if (!await confirmBox('Importing adds or overwrites records from the backup file. Continue?', 'Import backup', true)) return;
+      await DB.importAll(JSON.parse(await f.text())); blobCache.clear();
+      toast('Backup imported'); go('#/');
+    }
+  };
+
+  /* ================= GLOBAL LISTENERS ================= */
+  document.addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]');
+    if (!el || el.closest('.modal-wrap')) return;
+    const fn = Actions[el.dataset.act]; if (!fn) return;
+    e.preventDefault();
+    try { await fn(el.dataset, el); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+  });
+  document.addEventListener('submit', async e => {
+    const f = e.target.closest('form[data-form]'); if (!f) return;
+    e.preventDefault();
+    const btn = f.querySelector('button:not([type=button])'); if (btn) btn.disabled = true;
+    try { await Forms[f.dataset.form](UI.formToObj(f), f); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+    finally { if (btn && btn.isConnected) btn.disabled = false; }
+  });
+  document.addEventListener('change', async e => {
+    const el = e.target; if (el.closest('.modal-wrap') || !el.dataset.change) return;
+    try { await Changes[el.dataset.change](el); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+  });
+  document.addEventListener('input', e => {
+    const el = e.target; if (!el.dataset.filter) return;
+    const q = el.value.toLowerCase().trim();
+    document.querySelectorAll(el.dataset.filter).forEach(n => { n.hidden = q && !(n.dataset.search || '').includes(q); });
+  });
+  window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+  /* ================= BOOT ================= */
+  async function afterSignIn() {
+    await DB.init();
+    await W.ensureDefaults();
+  }
+
+  /** Public (signed-out) enquiry: saved to the same table the website uses, so it flows into the CRM the same way. */
+  async function submitPublicEnquiry(f) {
+    const svc = W.services(true).filter(s => (f.services || []).includes(s.id));
+    const notes = [f.look && `Look: ${f.look}`, f.notes, f.callPref && `Best time to call: ${f.callPref}`, f.heardFrom && `Found via: ${f.heardFrom}`, f.instagram && `Instagram: ${f.instagram}`].filter(Boolean).join('\n');
+    const { error } = await DB.client.from('enquiries').insert({
+      name: [f.firstName, f.lastName].filter(Boolean).join(' '), email: f.email, phone: f.phone,
+      category: 'crm-form', category_name: f.eventType, look_name: svc.map(s => s.name).join(', ') || null,
+      event_date: f.eventDate || null, time: f.readyBy || null, time_type: 'ready_by', location: f.location,
+      quantity: String(f.partySize || 1), bridal_trial: f.trial || null, skin_type: f.skinType || null, allergies: f.allergies || null,
+      notes, extra_services: svc.map(s => s.name), estimate_total: svc.reduce((t, s) => t + +s.price, 0) || null, estimate_is_from: true,
+      consent: !!f.consent, status: 'new', source: 'crm-form'
+    });
+    if (error) throw new Error('Sorry, your enquiry couldn’t be sent. Please try again or message us on Instagram.');
+  }
+
+  // pick up new website enquiries and changes made on other devices
+  async function backgroundRefresh() {
+    if (!Auth.isStaff() || document.hidden || document.querySelector('.modal-wrap') || document.activeElement?.matches('input,textarea,select')) return;
+    try {
+      if (await DB.refresh()) { blobCache.clear(); if (parts()[0] !== 'enquire') rerender(); }
+    } catch (err) { console.warn('Refresh failed', err); }
+  }
+
+  (async function boot() {
+    try {
+      await Auth.init(() => render());
+      if (Auth.isStaff()) await afterSignIn();
+      render();
+      setInterval(backgroundRefresh, 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) backgroundRefresh(); });
+    } catch (err) {
+      console.error(err);
+      $app().innerHTML = `<div class="auth"><div class="auth-card"><h1>Couldn’t connect</h1><p>${esc(err.message)}</p><p class="small muted">Check your internet connection and refresh the page.</p><button class="btn" onclick="location.reload()">Try again</button></div></div>`;
+    }
+  })();
+})();
