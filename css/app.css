@@ -376,3 +376,19 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 .ref-grid span { position: absolute; left: 4px; bottom: 4px; right: 4px; font-size: 10px; color: #fff; background: rgba(0,0,0,.5); padding: 1px 5px; border-radius: 99px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team { list-style: none; padding: 0; margin: 4px 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .notes h3 + .answers { margin-top: 6px; }
+
+/* Employees (2026-11-16): tabs, expandable person rows; Marketing and Inventory placeholders */
+.seg { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.seg a { padding: 7px 13px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 500; text-decoration: none; }
+.seg a b { font-weight: 600; color: var(--muted); margin-left: 3px; }
+.seg a.active { background: var(--ink); color: #fff; border-color: var(--ink); } .seg a.active b { color: #fff; }
+.person summary { list-style: none; cursor: pointer; } .person summary::-webkit-details-marker { display: none; }
+.person[open] summary { background: var(--accent-soft); }
+.person-body { padding: 4px 18px 16px 66px; }
+.person-body .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 6px 0; font-size: 14px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.soon-card { text-align: center; padding: 48px 20px; }
+.soon-card .soon-ic { width: 56px; height: 56px; margin: 0 auto 12px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); }
+.soon-card .soon-ic svg { width: 26px; height: 26px; }
+@media (max-width: 640px) { .person-body { padding-left: 18px; } }

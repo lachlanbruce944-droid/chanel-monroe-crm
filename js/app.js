@@ -29,6 +29,9 @@
       case 'invoices': view = viewInvoices(); break;
       case 'invoice': view = viewInvoice(p1); break;
       case 'reviews': view = viewReviews(); break;
+      case 'employees': view = viewEmployees(p1); break;
+      case 'marketing': view = viewSoon('Marketing', 'megaphone', 'Campaigns, the mailing list, Instagram posts and referral offers will live here.'); break;
+      case 'inventory': view = viewSoon('Inventory', 'box', 'Kit stock, product shades, expiry dates and reorder reminders will live here.'); break;
       case 'profile': view = viewProfile(); break;
       case 'new': view = viewNewEnquiry(p1); break;
       default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
@@ -46,8 +49,9 @@
     const due = W.dueReminders().length;
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
-      ['clients', 'users', 'Clients'], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'], ['profile', 'user', 'Profile']];
-    const isActive = k => active === k || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
+      ['clients', 'users', 'Clients'], ['employees', 'team', 'Employees', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
+      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile']];
+    const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
     const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'profile'].includes(n[0]));
     $app().innerHTML = `
     <div class="shell">
@@ -497,6 +501,43 @@
     };
   }
 
+
+  /* ================= EMPLOYEES (team + affiliates, fed by the website's Join the team / Become an affiliate forms) ================= */
+  const PEOPLE_TABS = [['applications', 'Applications', x => x.status === 'applied'], ['team', 'Team', x => x.kind === 'team' && x.status === 'active'],
+    ['affiliates', 'Affiliates', x => x.kind === 'affiliate' && x.status === 'active'], ['past', 'Past & declined', x => x.status === 'declined' || x.status === 'inactive']];
+  const personName = x => [x.firstName, x.lastName].filter(Boolean).join(' ') || x.businessName || 'Unnamed';
+  function viewEmployees(tab) {
+    if (DB.missing.people) return { title: 'Employees', html: empty('The Employees section needs its database table.',
+      '<p class="small muted">Run <code>supabase/crm_people.sql</code> in the Supabase SQL editor (or approve the migration when asked), then refresh.</p>') };
+    const t = PEOPLE_TABS.find(x => x[0] === tab) || PEOPLE_TABS[0];
+    const all = DB.list('people'), list = all.filter(t[2]).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const pill = x => `<span class="badge ${x.kind === 'team' ? 's-booked' : 's-call'}">${x.kind === 'team' ? 'Team' : 'Affiliate'}</span>`;
+    const row = x => `<li class="person-row" data-search="${esc((personName(x) + ' ' + (x.businessName || '') + ' ' + (x.role || '') + ' ' + (x.email || '') + ' ' + (x.instagram || '')).toLowerCase())}">
+      <details class="person"><summary class="list-row"><div class="avatar">${esc((x.firstName || x.businessName || '?')[0])}${esc((x.lastName || '')[0] || '')}</div>
+        <div class="grow"><strong>${esc(personName(x))}${x.businessName && x.firstName ? ' · ' + esc(x.businessName) : ''}</strong><small>${esc(x.role || '')}${x.areas ? ' · ' + esc(x.areas) : ''}</small></div>
+        <div class="right"><small>${fmtShort(x.createdAt)}</small>${x.showOnSite ? '<small>On website</small>' : ''}</div>${pill(x)}</summary>
+        <div class="person-body"><dl class="kv">${[['Email', x.email && `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>`], ['Phone', x.phone && `<a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>`],
+          ['Instagram', x.instagram && esc(x.instagram)], ['Website', x.website && esc(x.website)], ['Experience', x.experience && esc(x.experience)], ['Availability', x.availability && esc(x.availability)],
+          ['Notes', x.notes && esc(x.notes).replace(/\n/g, '<br>')], ['Source', esc(x.source || '')]].filter(r => r[1]).map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>
+        <div class="row gap">${x.status === 'applied' ? `<button class="btn primary sm" data-act="personStatus" data-id="${x.id}" data-arg="active">${x.kind === 'team' ? 'Add to team' : 'Add as affiliate'}</button>
+            <button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="declined">Decline</button>`
+          : x.status === 'active' ? `${x.kind === 'team' ? `<button class="btn sm" data-act="personShow" data-id="${x.id}">${x.showOnSite ? 'Hide from website' : 'Show on website (About → The team)'}</button>` : ''}
+            <button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="inactive">Mark as past</button>`
+          : `<button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Make active again</button>`}
+          ${x.email ? `<a class="btn ghost sm" href="mailto:${esc(x.email)}">${icon('mail')} Email</a>` : ''}
+          <button class="btn ghost sm" data-act="deletePerson" data-id="${x.id}">Delete</button></div></div></details></li>`;
+    return {
+      title: 'Employees', subtitle: `${all.filter(x => x.status === 'active' && x.kind === 'team').length} team · ${all.filter(x => x.status === 'active' && x.kind === 'affiliate').length} affiliates · ${all.filter(x => x.status === 'applied').length} new applications`,
+      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search" data-filter=".person-row"></label><button class="btn primary sm" data-act="addPerson">${icon('plus')} Person</button>`,
+      html: `<nav class="seg">${PEOPLE_TABS.map(([k, l, f]) => `<a href="#/employees/${k}" class="${k === t[0] ? 'active' : ''}">${l} <b>${all.filter(f).length}</b></a>`).join('')}</nav>
+        ${list.length ? `<section class="card flush"><ul class="list">${list.map(row).join('')}</ul></section>`
+          : empty(t[0] === 'applications' ? 'No new applications. They arrive here from the website’s “Join the team” and “Become an affiliate” forms.' : 'Nobody here yet.')}`
+    };
+  }
+  function viewSoon(title, ic, text) {
+    return { title, html: `<section class="card soon-card"><div class="soon-ic">${icon(ic)}</div><h2>${esc(title)} is coming soon</h2><p class="muted">${esc(text)}</p></section>` };
+  }
+
   /* ================= PROFILE & SETTINGS ================= */
   function viewProfile() {
     const p = W.profile(); const u = Auth.current;
@@ -841,6 +882,21 @@
       }
     },
     async reopen(d) { await W.reopen(d.id); toast('Reopened'); rerender(); },
+    async personStatus(d) {
+      const x = DB.get('people', d.id); if (!x) return;
+      await DB.save('people', { ...x, status: d.arg, showOnSite: d.arg === 'active' ? x.showOnSite : false });
+      toast(d.arg === 'active' ? `${personName(x)} added` : d.arg === 'declined' ? 'Application declined' : 'Moved to past'); rerender();
+    },
+    async personShow(d) { const x = DB.get('people', d.id); if (!x) return; await DB.save('people', { ...x, showOnSite: !x.showOnSite }); toast(x.showOnSite ? 'Hidden from the website' : 'Now on the website’s About page'); rerender(); },
+    async deletePerson(d) { const x = DB.get('people', d.id); if (x && await confirmBox(`Delete ${personName(x)}?`, 'Delete', true)) { await DB.remove('people', d.id); toast('Deleted'); rerender(); } },
+    async addPerson() {
+      await modal({ title: 'Add a person', submitLabel: 'Add',
+        body: `<div class="form-grid"><label>Type<select name="kind"><option value="team">Team member</option><option value="affiliate">Affiliate</option></select></label>
+          <label>Role or service<input name="role" placeholder="e.g. Hair stylist"></label><label>First name<input name="firstName" required></label><label>Last name<input name="lastName"></label>
+          <label>Business<input name="businessName"></label><label>Instagram<input name="instagram"></label><label>Email<input type="email" name="email"></label><label>Mobile<input type="tel" name="phone"></label>
+          <label class="span-2">Notes<textarea name="notes"></textarea></label></div>`,
+        async onSubmit(f) { await DB.save('people', { ...f, status: 'active', source: 'Added manually', showOnSite: false, application: {} }); setTimeout(() => go(`#/employees/${f.kind === 'team' ? 'team' : 'affiliates'}`)); } });
+    },
     async addClient() {
       await modal({ title: 'New client', submitLabel: 'Add client',
         body: `<div class="form-grid"><label>First name<input name="firstName" required></label><label>Last name<input name="lastName"></label>

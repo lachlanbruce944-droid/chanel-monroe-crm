@@ -18,6 +18,11 @@ chanelmonroe website (chat enquiry) ──insert──▶ public.enquiries
 ```
 Every website enquiry turns into a client and a booking automatically. The booking shows everything the client picked: look, extras, reference photos, beauty team, estimate and travel. Nothing extra has to be added to the website.
 
+## Employees, Marketing, Inventory
+- **Employees** (`#/employees`): team members and affiliates in `crm_people` (staff only). The website's *Join the team* and *Become an affiliate* forms (`apply.html` on the website, edge function `application`) add people here as **Applications**. Add them to the team or as an affiliate, decline, or mark as past. **Show on website** puts an active team member (first name, role, Instagram, photo) on the website's About → The team, through the public `site_team()` function. Nothing else is ever public.
+- **Marketing** and **Inventory**: placeholder tabs for now.
+- Table SQL: `supabase/crm_people.sql`.
+
 ## Sign-in & access
 - Accounts use email + password (Supabase Auth), with password-reset emails.
 - **The first account to sign in becomes the owner** (Chanel). Anyone else who signs up sees "waiting for access" until the owner adds their email under *Profile → Team accounts*.

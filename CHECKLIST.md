@@ -1,6 +1,6 @@
 # Chanel Monroe CRM — running checklist
 
-_Last updated: 15 Nov 2026. Tick items off here as they're done; add new ones at the bottom of the right section._
+_Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at the bottom of the right section._
 
 ## ✅ Done
 - [x] Booking workflow: Enquiry → Call → Quote → Deposit → Booked → Day → Final invoice → Review → Complete
@@ -13,8 +13,11 @@ _Last updated: 15 Nov 2026. Tick items off here as they're done; add new ones at
 - [x] Supabase sign-in: email + password, reset email, first account = owner, owner adds assistants
 - [x] Sample/test clients removed. The CRM starts empty.
 - [x] GitHub repo created and published on GitHub Pages
+- [x] Employees section (16 Nov): Applications / Team / Affiliates / Past tabs. The website's "Join the team" (About) and "Become an affiliate" (Affiliates) chat forms land here as applications (table `crm_people`, edge function `application`, which also emails Chanel and the applicant). Add to team, decline, mark as past, and "Show on website" puts a team member on the website's About → The team.
+- [x] Marketing and Inventory tabs added as "coming soon" placeholders
 
 ## 🔜 Next (to do now)
+- [ ] **Approve / run `supabase/crm_people.sql`** (creates `crm_people` + `site_team()`, and the website's selfie storage). Until then the Employees tab says the table is missing; applications are still emailed to Chanel.
 - [ ] **Chanel creates her account first** on the live site (first account becomes owner)
 - [ ] Fill in Profile: ABN, bank/PayID, review link, deposit %, policy, photo
 - [ ] Check services & prices match the website's pricing

@@ -27,7 +27,11 @@
     reminders: { table: 'crm_reminders', cols: ['bookingId', 'clientId', 'kind', 'title', 'dueAt', 'templateKey', 'channel', 'status', 'closedAt'], ts: ['dueAt', 'closedAt'] },
     photos:    { table: 'crm_photos',    cols: ['bookingId', 'clientId', 'kind', 'caption', 'fileName', 'takenAt', 'storagePath'] },
     reviews:   { table: 'crm_reviews',   cols: ['bookingId', 'clientId', 'rating', 'text', 'source', 'consentToShare', 'receivedAt'] },
-    activity:  { table: 'crm_activity',  cols: ['bookingId', 'clientId', 'userId', 'type', 'text', 'at'], ts: ['at'] }
+    activity:  { table: 'crm_activity',  cols: ['bookingId', 'clientId', 'userId', 'type', 'text', 'at'], ts: ['at'] },
+    /* Employees: team members and affiliates, incl. website applications (status 'applied'). Optional: the CRM
+       still loads if supabase/crm_people.sql has not been run yet (DB.missing.people is then true). */
+    people:    { table: 'crm_people',    cols: ['kind', 'status', 'firstName', 'lastName', 'businessName', 'role', 'email', 'phone', 'instagram', 'website', 'areas',
+                 'experience', 'availability', 'notes', 'photoUrl', 'showOnSite', 'source', 'application'], optional: true }
   };
   const STORES = Object.keys(SCHEMA);
   const cache = {}; STORES.forEach(s => (cache[s] = new Map()));
@@ -78,8 +82,12 @@
   const DB = {
     uid, nowIso, STORES, client: sb,
 
+    missing: {},
     async init() {
-      const results = await Promise.all(STORES.map(fetchAll));
+      const results = await Promise.all(STORES.map(st => fetchAll(st).catch(err => {
+        if (!SCHEMA[st].optional) throw err;
+        DB.missing[st] = true; console.warn(err.message); return [];
+      })));
       STORES.forEach((s, i) => { cache[s] = new Map(results[i].map(r => [r.id, r])); });
       signature = sig();
     },
