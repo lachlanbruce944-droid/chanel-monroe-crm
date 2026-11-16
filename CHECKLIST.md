@@ -17,14 +17,14 @@ _Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at
 - [x] Marketing and Inventory tabs added as "coming soon" placeholders
 - [x] `crm_people` table + `site_team()` applied (16 Nov), plus the website's selfie storage
 - [x] Services match the website's price list: the 26 looks from the website's pricing (same names, prices, from-prices) plus 3 CRM add-ons; deposit 30% matches. Seeded on Chanel's first sign-in.
+- [x] Supabase Auth URLs (16 Nov): Site URL was http://localhost:3000; now the live CRM (https://lachlanbruce944-droid.github.io/chanel-monroe-crm/), plus redirect URL `…/chanel-monroe-crm/**`. Confirm and reset emails now link to the CRM.
+- [x] Live tests (16 Nov): a website enquiry became a CRM client + booking (Enquiry stage) and both emails were delivered; a Join the team application landed in Employees → Applications and both emails were delivered. Test records then deleted.
 
 ## 🔜 Next (to do now)
 - [ ] **Chanel creates her account first** on the live site (first account becomes owner)
 - [ ] Fill in Profile (Chanel): ABN, bank/PayID, phone, review link, photo. Email, website, service area and 30% deposit are pre-filled.
-- [ ] Supabase → Authentication → URL configuration: confirm the GitHub Pages URL is in Site URL / Redirect URLs (needed for confirm & reset emails)
 - [ ] Optional: turn off public sign-ups in Supabase once the team is set up (Auth → Providers → Email → "Allow new users to sign up")
-- [ ] Decide on the 6 test enquiries in the website's `enquiries` table (Lachlan's tests, 13–14 Nov). They were **not** imported into the CRM. Delete them or keep them.
-- [ ] Send one real test enquiry through the live website and confirm it appears in Enquiries
+- [ ] Decide on the 6 test enquiries in the website's `enquiries` table (Lachlan's tests, 13–14 Nov, not in the CRM) and Chanel's own enquiry of 15 Nov (in the CRM as a booking). Delete them or keep them.
 
 ## 💡 Roadmap (from CRM research, highest value first)
 1. **Instant notify + auto-reply.** Push/email Chanel the moment a website enquiry lands, and track first-response time. About half of wedding suppliers reply within the first hour, so speed decides bookings.
