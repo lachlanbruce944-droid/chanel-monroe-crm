@@ -392,3 +392,24 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 .soon-card .soon-ic { width: 56px; height: 56px; margin: 0 auto 12px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); }
 .soon-card .soon-ic svg { width: 26px; height: 26px; }
 @media (max-width: 640px) { .person-body { padding-left: 18px; } }
+
+/* Connections: photo profiles and explicit relationship status. */
+.connections-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:18px}
+.connection-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;min-width:0}
+.connection-cover{height:190px;position:relative;background:var(--accent-soft)}
+.connection-cover>img{width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block}
+.connection-placeholder{display:grid;place-items:center;height:100%;font:54px var(--serif);color:var(--accent-dark)}
+.connection-state{position:absolute;bottom:10px;left:10px;background:var(--surface);padding:5px 10px;border-radius:99px;font-size:12px;color:var(--ink-2);box-shadow:var(--shadow)}
+.connection-state.connected{color:var(--ok)}
+.connection-body{padding:18px}.connection-body h2{font-size:22px;margin:7px 0 2px}.connection-body p{margin:0 0 12px}
+.connection-contact{display:grid;gap:8px;margin:14px 0;font-size:13px;overflow-wrap:anywhere}.connection-contact a{display:flex;align-items:center;gap:7px}.connection-contact svg{width:16px;height:16px;flex:none}
+.connection-body details{margin:14px 0}.connection-body summary{cursor:pointer;font-weight:600}.connection-body .kv{font-size:13px;overflow-wrap:anywhere}.connection-body .row{flex-wrap:wrap}
+.connection-card[hidden],.enquiry-row[hidden]{display:none!important}
+/* Enquiries: compact overview, next action and easy mobile scanning. */
+.enquiry-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.enquiry-filter{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:6px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:13px;text-align:left;font-size:12px;color:var(--ink-2)}
+.enquiry-filter strong{font-size:25px;color:var(--ink)}.enquiry-filter.selected{background:var(--accent-soft);border-color:var(--accent)}
+.enquiry-row.deal{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px 0;margin:0;border:0;border-radius:0;border-bottom:1px solid var(--line);box-shadow:none;align-items:center}
+.enquiry-row:last-child{border-bottom:0}.enquiry-identity{grid-column:1/-1}.enquiry-identity strong{font-size:17px}.enquiry-identity span,.enquiry-identity small,.enquiry-value small{display:block;overflow-wrap:anywhere}
+.enquiry-next{font-size:12px;margin-top:6px;color:var(--muted)}.enquiry-next.overdue{color:var(--bad)}.enquiry-row .btn{justify-self:end}
+@media(min-width:1100px){.enquiry-filters{grid-template-columns:repeat(6,minmax(0,1fr))}.enquiry-row.deal{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1.4fr) auto auto;gap:18px}.enquiry-identity{grid-column:auto}}
