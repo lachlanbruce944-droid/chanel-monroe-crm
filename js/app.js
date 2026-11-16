@@ -6,7 +6,7 @@
     icon, stars, toast, modal, confirmBox, toLocalInput, copyText, download, pad } = UI;
   const W = Workflow;
   const $app = () => document.getElementById('app');
-  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all' };
+  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all', pipelineMode: 'list', pipelineFilter: 'active' };
   const blobCache = new Map();
 
   /* ---------------- routing ---------------- */
@@ -49,10 +49,10 @@
     const due = W.dueReminders().length;
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
-      ['clients', 'users', 'Clients'], ['employees', 'team', 'Employees', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
+      ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
       ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
-    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'profile'].includes(n[0]));
+    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'employees', 'profile'].includes(n[0]));
     $app().innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -161,24 +161,28 @@
 
   /* ================= PIPELINE ================= */
   function viewPipeline() {
-    const list = DB.list('bookings').sort((a, b) => (a.eventDate || '9999').localeCompare(b.eventDate || '9999'));
-    const openList = list.filter(b => b.status !== 'lost');
-    const lost = list.filter(b => b.status === 'lost');
-    const cols = W.STAGES.map(s => ({ s, items: openList.filter(b => b.stage === s.key) }));
-    return {
-      title: 'Enquiries & bookings',
-      subtitle: `${openList.filter(b => b.stage !== 'complete').length} active · swipe across to see each stage`,
-      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search clients" data-filter=".deal"></label>
-        <button class="btn ghost sm" data-act="toggleLost">${state.showLost ? 'Hide' : 'Show'} lost (${lost.length})</button>`,
-      html: `<div class="board">${cols.map(({ s, items }) => `
-        <section class="col">
-          <header><span class="dot s-${s.key}"></span><h3>${esc(s.label)}</h3><b>${items.length}</b></header>
-          <div class="col-body">${items.map(bookingCard).join('') || '<div class="col-empty">—</div>'}</div>
-        </section>`).join('')}
-        ${state.showLost ? `<section class="col lostcol"><header><span class="dot lost"></span><h3>Lost</h3><b>${lost.length}</b></header>
-          <div class="col-body">${lost.map(bookingCard).join('') || '<div class="col-empty">—</div>'}</div></section>` : ''}
-      </div>`
-    };
+    const all = DB.list('bookings').sort((a,b)=>(a.eventDate||'9999').localeCompare(b.eventDate||'9999'));
+    const active = all.filter(b=>b.status!=='lost'&&b.stage!=='complete');
+    const matches = b => state.pipelineFilter==='active' ? b.status!=='lost'&&b.stage!=='complete' : state.pipelineFilter==='lost' ? b.status==='lost' : b.status!=='lost'&&b.stage===state.pipelineFilter;
+    const list=all.filter(matches);
+    const filters=[['active','Active',active.length],['enquiry','New enquiries',active.filter(b=>b.stage==='enquiry').length],['deposit','Awaiting deposit',active.filter(b=>b.stage==='deposit').length],['booked','Booked',active.filter(b=>b.stage==='booked').length],['complete','Completed',all.filter(b=>b.status!=='lost'&&b.stage==='complete').length],['lost','Lost / cancelled',all.filter(b=>b.status==='lost').length]];
+    const rows=list.map(b=>{
+      const c=W.clientOf(b),t=W.totals(b),r=DB.list('reminders',r=>r.bookingId===b.id&&r.status==='pending').sort((a,b)=>(a.dueAt||'').localeCompare(b.dueAt||''))[0];
+      const overdue=r&&new Date(r.dueAt)<new Date();
+      const next=b.status==='lost'?'Closed':b.stage==='complete'?'Completed':r?.title||STAGE_ACTIONS[b.stage]?.[0]?.[2]||'Review booking';
+      return `<article class="enquiry-row deal" data-search="${esc([W.clientName(c),c.email,c.phone,b.eventType,b.location].join(' ').toLowerCase())}">
+        <div class="enquiry-identity"><strong>${esc(W.clientName(c))}</strong><span class="muted">${esc(b.eventType||'Service to confirm')}</span><small>${esc(c.email||c.phone||'Add contact details')}</small></div>
+        <div><small class="muted">Event date</small><div>${fmtShort(b.eventDate)}</div><small class="muted">${esc(b.location||'Location to confirm')}</small></div>
+        <div>${stageBadge(b)}<div class="enquiry-next ${overdue?'overdue':''}">${overdue?'● ':''}${esc(next)}${r?' · '+fmtShort(r.dueAt):''}</div></div>
+        <div class="enquiry-value"><strong>${t.total?money(t.total):'Quote needed'}</strong>${t.total?`<small class="muted">${money(t.balance)} remaining</small>`:''}</div>
+        <a class="btn sm" href="#/booking/${b.id}">Open ${b.stage==='enquiry'?'enquiry':'booking'} →</a></article>`;
+    }).join('');
+    const board=`<div class="board">${W.STAGES.map(stage=>{const bs=list.filter(b=>b.stage===stage.key);return `<section class="col"><header><span class="dot s-${stage.key}"></span><h3>${esc(stage.label)}</h3><b>${bs.length}</b></header><div class="col-body">${bs.map(bookingCard).join('')||'<div class="col-empty">No enquiries</div>'}</div></section>`}).join('')}</div>`;
+    return {title:'Enquiries & bookings',subtitle:`${active.length} active · see the next step for every client`,
+      actions:`<label class="search">${icon('search')}<input type="search" placeholder="Search name, email or service" data-filter=".deal"></label><a class="btn primary sm" href="#/new">${icon('plus')} New enquiry</a>`,
+      html:`<nav class="enquiry-filters">${filters.map(([k,l,n])=>`<button class="enquiry-filter ${state.pipelineFilter===k?'selected':''}" data-act="pipelineFilter" data-arg="${k}"><span>${l}</span><strong>${n}</strong></button>`).join('')}</nav>
+      <section class="card"><div class="card-head"><div><h2>${esc(filters.find(f=>f[0]===state.pipelineFilter)?.[1]||'Enquiries')}</h2><span class="muted small">${list.length} records · earliest event first</span></div><button class="btn ghost sm" data-act="pipelineMode">${state.pipelineMode==='list'?'Switch to board':'Switch to list'}</button></div>
+      ${list.length ? state.pipelineMode==='board'?board:`<div class="enquiry-list">${rows}</div>` : empty('Nothing in this view yet. New website enquiries arrive automatically.','<a class="btn" href="#/new">Add an enquiry</a>')}</section>`};
   }
 
   /* ================= BOOKING DETAIL ================= */
@@ -503,36 +507,54 @@
 
 
   /* ================= EMPLOYEES (team + affiliates, fed by the website's Join the team / Become an affiliate forms) ================= */
-  const PEOPLE_TABS = [['applications', 'Applications', x => x.status === 'applied'], ['team', 'Team', x => x.kind === 'team' && x.status === 'active'],
+  const PEOPLE_TABS = [['applications', 'Applications', x => x.status === 'applied'], ['team', 'Associates', x => x.kind === 'team' && x.status === 'active'],
     ['affiliates', 'Affiliates', x => x.kind === 'affiliate' && x.status === 'active'], ['past', 'Past & declined', x => x.status === 'declined' || x.status === 'inactive']];
   const personName = x => [x.firstName, x.lastName].filter(Boolean).join(' ') || x.businessName || 'Unnamed';
+  const safeWeb = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch (_) { return ''; } };
+  const handleOf = value => String(value || '').toLowerCase().replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/^@/, '').split(/[/?#]/)[0].trim();
+  const CONNECTION_STATES = { prospect: 'Not contacted', contacted: 'Contacted', connected: 'Connected' };
   function viewEmployees(tab) {
-    if (DB.missing.people) return { title: 'Employees', html: empty('The Employees section needs its database table.',
-      '<p class="small muted">Run <code>supabase/crm_people.sql</code> in the Supabase SQL editor (or approve the migration when asked), then refresh.</p>') };
+    if (DB.missing.people) return { title: 'Connections', html: empty('Connections needs the people database table. See supabase/README.md.') };
     const t = PEOPLE_TABS.find(x => x[0] === tab) || PEOPLE_TABS[0];
-    const all = DB.list('people'), list = all.filter(t[2]).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const pill = x => `<span class="badge ${x.kind === 'team' ? 's-booked' : 's-call'}">${x.kind === 'team' ? 'Team' : 'Affiliate'}</span>`;
-    const row = x => `<li class="person-row" data-search="${esc((personName(x) + ' ' + (x.businessName || '') + ' ' + (x.role || '') + ' ' + (x.email || '') + ' ' + (x.instagram || '')).toLowerCase())}">
-      <details class="person"><summary class="list-row"><div class="avatar">${esc((x.firstName || x.businessName || '?')[0])}${esc((x.lastName || '')[0] || '')}</div>
-        <div class="grow"><strong>${esc(personName(x))}${x.businessName && x.firstName ? ' · ' + esc(x.businessName) : ''}</strong><small>${esc(x.role || '')}${x.areas ? ' · ' + esc(x.areas) : ''}</small></div>
-        <div class="right"><small>${fmtShort(x.createdAt)}</small>${x.showOnSite ? '<small>On website</small>' : ''}</div>${pill(x)}</summary>
-        <div class="person-body"><dl class="kv">${[['Email', x.email && `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>`], ['Phone', x.phone && `<a href="tel:${esc(x.phone)}">${esc(x.phone)}</a>`],
-          ['Instagram', x.instagram && esc(x.instagram)], ['Website', x.website && esc(x.website)], ['Experience', x.experience && esc(x.experience)], ['Availability', x.availability && esc(x.availability)],
-          ['Notes', x.notes && esc(x.notes).replace(/\n/g, '<br>')], ['Source', esc(x.source || '')]].filter(r => r[1]).map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>
-        <div class="row gap">${x.status === 'applied' ? `<button class="btn primary sm" data-act="personStatus" data-id="${x.id}" data-arg="active">${x.kind === 'team' ? 'Add to team' : 'Add as affiliate'}</button>
-            <button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="declined">Decline</button>`
-          : x.status === 'active' ? `${x.kind === 'team' ? `<button class="btn sm" data-act="personShow" data-id="${x.id}">${x.showOnSite ? 'Hide from website' : 'Show on website (About → The team)'}</button>` : ''}
-            <button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="inactive">Mark as past</button>`
-          : `<button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Make active again</button>`}
-          ${x.email ? `<a class="btn ghost sm" href="mailto:${esc(x.email)}">${icon('mail')} Email</a>` : ''}
-          <button class="btn ghost sm" data-act="deletePerson" data-id="${x.id}">Delete</button></div></div></details></li>`;
-    return {
-      title: 'Employees', subtitle: `${all.filter(x => x.status === 'active' && x.kind === 'team').length} team · ${all.filter(x => x.status === 'active' && x.kind === 'affiliate').length} affiliates · ${all.filter(x => x.status === 'applied').length} new applications`,
-      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search" data-filter=".person-row"></label><button class="btn primary sm" data-act="addPerson">${icon('plus')} Person</button>`,
-      html: `<nav class="seg">${PEOPLE_TABS.map(([k, l, f]) => `<a href="#/employees/${k}" class="${k === t[0] ? 'active' : ''}">${l} <b>${all.filter(f).length}</b></a>`).join('')}</nav>
-        ${list.length ? `<section class="card flush"><ul class="list">${list.map(row).join('')}</ul></section>`
-          : empty(t[0] === 'applications' ? 'No new applications. They arrive here from the website’s “Join the team” and “Become an affiliate” forms.' : 'Nobody here yet.')}`
+    const all = DB.list('people'), list = all.filter(t[2]).sort((a, b) => personName(a).localeCompare(personName(b)));
+    const candidates = (window.WEBSITE_CONNECTIONS || []).filter(a => !all.some(x => handleOf(x.instagram) === a.handle || x.websiteAffiliateHandle === a.handle));
+    const row = x => {
+      const status = CONNECTION_STATES[x.connectionStatus] || 'Not contacted', connected = x.connectionStatus === 'connected';
+      const photo = safeWeb(x.photoUrl), site = safeWeb(x.website), scheduling = safeWeb(x.schedulingUrl);
+      return `<article class="connection-card person-row" data-search="${esc([personName(x),x.role,x.email,x.phone,x.instagram,x.areas].join(' ').toLowerCase())}">
+        <div class="connection-cover">${photo ? `<img src="${esc(photo)}" alt="${esc(personName(x))}" loading="lazy" referrerpolicy="no-referrer">` : `<div class="connection-placeholder">${esc(personName(x).slice(0,2).toUpperCase())}</div>`}
+          <span class="connection-state ${connected ? 'connected' : ''}" title="Relationship status, manually confirmed"><span aria-hidden="true">${connected ? '●' : '○'}</span> ${esc(status)}</span></div>
+        <div class="connection-body"><span class="badge">${x.kind === 'team' ? 'Associate' : 'Affiliate'}</span><h2>${esc(personName(x))}</h2><p class="muted">${esc(x.role || 'Add a role')}${x.areas ? ' · '+esc(x.areas) : ''}</p>
+          <div class="connection-contact">${x.email ? `<a href="mailto:${esc(x.email)}">${icon('mail')} ${esc(x.email)}</a>` : '<span class="muted">Email not provided</span>'}
+          ${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^+0-9]/g,''))}">${icon('phone')} ${esc(x.phone)}</a>` : '<span class="muted">Mobile not provided</span>'}</div>
+          <details><summary>Profile & availability</summary><dl class="kv">${[['Instagram',esc(x.instagram || 'Not provided')],['Website',site ? `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">Open website ↗</a>` : 'Not provided'],['Availability',esc(x.availability || 'Not provided').replace(/\n/g,'<br>')],['Time zone',esc(x.scheduleTimezone || 'Australia/Brisbane')],['Scheduling software',esc(x.schedulingProvider || 'Not set')],['Booking page',scheduling ? `<a href="${esc(scheduling)}" target="_blank" rel="noopener noreferrer">Open booking page ↗</a>` : 'Not provided'],['Calendar sync','Not linked — availability is entered manually'],['Notes',esc(x.notes || '').replace(/\n/g,'<br>')],['Source',esc(x.source || '')]].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></details>
+          <div class="row gap"><button class="btn primary sm" data-act="editPerson" data-id="${x.id}">Edit profile</button>
+          ${x.status === 'applied' ? `<button class="btn sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Approve</button><button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="declined">Decline</button>` : x.status === 'active' ? `<button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="inactive">Archive</button>` : `<button class="btn sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Restore</button>`}
+          ${x.kind === 'team' && x.status === 'active' ? `<button class="btn ghost sm" data-act="personShow" data-id="${x.id}">${x.showOnSite ? 'Hide from website' : 'Show on website'}</button>` : ''}
+          <button class="btn ghost sm" data-act="deletePerson" data-id="${x.id}">Delete</button></div></div></article>`;
     };
+    return { title: 'Connections', subtitle: `${all.filter(x=>x.kind==='team'&&x.status==='active').length} associates · ${all.filter(x=>x.kind==='affiliate'&&x.status==='active').length} affiliates · ${all.filter(x=>x.connectionStatus==='connected').length} connected`,
+      actions: `<label class="search">${icon('search')}<input type="search" placeholder="Name, service or contact" data-filter=".person-row"></label><button class="btn primary sm" data-act="addPerson">${icon('plus')} Add a connection</button>`,
+      html: `<section class="card soft"><div class="card-head"><h2>Your professional network</h2><button class="btn sm" data-act="importAffiliates" ${candidates.length ? '' : 'disabled'}>Import website affiliates (${candidates.length})</button></div><p class="muted">Photo profiles, contact details and manually entered availability. The status dot records your relationship; scheduling software is not connected yet. Import keeps existing profiles and does not send messages.</p><div class="row gap"><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=team" target="_blank" rel="noopener">Associate application ↗</a><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=affiliate" target="_blank" rel="noopener">Affiliate application ↗</a></div></section>
+      <nav class="seg">${PEOPLE_TABS.map(([k,l,f])=>`<a href="#/employees/${k}" class="${k===t[0]?'active':''}">${l} <b>${all.filter(f).length}</b></a>`).join('')}</nav><div class="connections-grid">${list.length ? list.map(row).join('') : empty(t[0]==='applications' ? 'New website applications appear here. View Associates or Affiliates for approved profiles.' : 'No profiles here yet. Add a connection or import website affiliates.')}</div>` };
+  }
+  async function editConnection(id) {
+    const x = id ? DB.get('people', id) : {kind:'team',status:'active',connectionStatus:'prospect'}; if(!x)return;
+    const field = (name,label,type='text') => `<label>${label}<input type="${type}" name="${name}" value="${esc(x[name] || '')}"></label>`;
+    await modal({title:id?'Edit connection':'Add a connection',wide:true,body:`<div class="form-grid">
+      <label>Type<select name="kind"><option value="team" ${x.kind==='team'?'selected':''}>Associate</option><option value="affiliate" ${x.kind==='affiliate'?'selected':''}>Affiliate</option></select></label>
+      <label>Relationship status<select name="connectionStatus">${Object.entries(CONNECTION_STATES).map(([k,v])=>`<option value="${k}" ${x.connectionStatus===k?'selected':''}>${v}</option>`).join('')}</select></label>
+      ${field('firstName','First name')}${field('lastName','Last name')}${field('businessName','Business / profile name')}${field('role','Role / service')}${field('email','Email','email')}${field('phone','Mobile','tel')}${field('instagram','Instagram handle')}${field('website','Website','url')}${field('photoUrl','Profile image URL','url')}${field('areas','Service areas')}
+      <label class="span-2">Availability / weekly schedule<textarea name="availability" rows="4" placeholder="Mon 9–5, Tue unavailable; dates or exceptions…">${esc(x.availability||'')}</textarea></label>
+      ${field('scheduleTimezone','Time zone (e.g. Australia/Brisbane)')}${field('schedulingProvider','Scheduling software (e.g. Fresha, Timely)')}${field('schedulingUrl','Public booking page URL','url')}
+      <label class="span-2">Notes<textarea name="notes" rows="4">${esc(x.notes||'')}</textarea></label></div><p class="small muted">A booking page link does not grant calendar access. Never paste passwords or API keys here.</p>`,
+      async onSubmit(f){ if(!f.firstName&&!f.businessName)throw Error('Enter a first name or business name.');
+        for(const k of ['website','photoUrl','schedulingUrl'])if(f[k]&&!safeWeb(f[k]))throw Error('Use a full http or https URL for '+k);
+        if(f.scheduleTimezone){try{new Intl.DateTimeFormat('en',{timeZone:f.scheduleTimezone})}catch(_){throw Error('Enter a valid time zone, such as Australia/Brisbane.')}}
+        const saved={...x,...f,showOnSite:f.kind==='team' ? !!x.showOnSite : false,source:x.source||'Added manually',application:x.application||{}};
+        if(f.connectionStatus==='connected'&&x.connectionStatus!=='connected')saved.connectedAt=new Date().toISOString();
+        await DB.save('people',saved);toast('Profile saved');setTimeout(()=>go('#/employees/'+(saved.status==='applied'?'applications':saved.kind==='team'?'team':'affiliates')));
+      }});
   }
   function viewSoon(title, ic, text) {
     return { title, html: `<section class="card soon-card"><div class="soon-ic">${icon(ic)}</div><h2>${esc(title)} is coming soon</h2><p class="muted">${esc(text)}</p></section>` };
@@ -766,6 +788,8 @@
       toast('Check your email for a reset link');
     },
     reloadForm() { renderPublicEnquiry(); window.scrollTo(0, 0); },
+    pipelineFilter(d) { state.pipelineFilter=d.arg;rerender(); },
+    pipelineMode() { state.pipelineMode=state.pipelineMode==='list'?'board':'list';rerender(); },
     toggleLost() { state.showLost = !state.showLost; rerender(); },
     tpl(d) { return openComposer(d.id, d.arg); },
     async allTemplates(d) {
@@ -889,13 +913,17 @@
     },
     async personShow(d) { const x = DB.get('people', d.id); if (!x) return; await DB.save('people', { ...x, showOnSite: !x.showOnSite }); toast(x.showOnSite ? 'Hidden from the website' : 'Now on the website’s About page'); rerender(); },
     async deletePerson(d) { const x = DB.get('people', d.id); if (x && await confirmBox(`Delete ${personName(x)}?`, 'Delete', true)) { await DB.remove('people', d.id); toast('Deleted'); rerender(); } },
-    async addPerson() {
-      await modal({ title: 'Add a person', submitLabel: 'Add',
-        body: `<div class="form-grid"><label>Type<select name="kind"><option value="team">Team member</option><option value="affiliate">Affiliate</option></select></label>
-          <label>Role or service<input name="role" placeholder="e.g. Hair stylist"></label><label>First name<input name="firstName" required></label><label>Last name<input name="lastName"></label>
-          <label>Business<input name="businessName"></label><label>Instagram<input name="instagram"></label><label>Email<input type="email" name="email"></label><label>Mobile<input type="tel" name="phone"></label>
-          <label class="span-2">Notes<textarea name="notes"></textarea></label></div>`,
-        async onSubmit(f) { await DB.save('people', { ...f, status: 'active', source: 'Added manually', showOnSite: false, application: {} }); setTimeout(() => go(`#/employees/${f.kind === 'team' ? 'team' : 'affiliates'}`)); } });
+    async addPerson() { await editConnection(); },
+    async editPerson(d) { await editConnection(d.id); },
+    async importAffiliates(d,el) {
+      if(!await confirmBox('Import public website affiliates as editable profiles? Existing Instagram profiles are skipped. Missing contacts stay blank. No messages will be sent.','Import profiles'))return;
+      el.disabled=true;let n=0;
+      try { for(const a of (window.WEBSITE_CONNECTIONS||[])){
+        if(DB.list('people').some(x=>handleOf(x.instagram)===a.handle||x.websiteAffiliateHandle===a.handle))continue;
+        await DB.save('people',{id:a.id,kind:'affiliate',status:'active',businessName:a.businessName,role:a.role,email:a.email,phone:a.phone,instagram:a.handle,website:a.website,photoUrl:a.photoUrl,notes:a.notes,source:'Website affiliate directory (17 Nov 2026)',websiteAffiliateHandle:a.handle,connectionStatus:'prospect',showOnSite:false,application:{}});n++;
+      } toast(n+' profiles imported');go('#/employees/affiliates'); }
+      catch(e){toast(n+' imported before the error. Retry safely to import the rest.','error');throw e}
+      finally{el.disabled=false;}
     },
     async addClient() {
       await modal({ title: 'New client', submitLabel: 'Add client',
