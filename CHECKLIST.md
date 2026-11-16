@@ -15,12 +15,12 @@ _Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at
 - [x] GitHub repo created and published on GitHub Pages
 - [x] Employees section (16 Nov): Applications / Team / Affiliates / Past tabs. The website's "Join the team" (About) and "Become an affiliate" (Affiliates) chat forms land here as applications (table `crm_people`, edge function `application`, which also emails Chanel and the applicant). Add to team, decline, mark as past, and "Show on website" puts a team member on the website's About → The team.
 - [x] Marketing and Inventory tabs added as "coming soon" placeholders
+- [x] `crm_people` table + `site_team()` applied (16 Nov), plus the website's selfie storage
+- [x] Services match the website's price list: the 26 looks from the website's pricing (same names, prices, from-prices) plus 3 CRM add-ons; deposit 30% matches. Seeded on Chanel's first sign-in.
 
 ## 🔜 Next (to do now)
-- [ ] **Approve / run `supabase/crm_people.sql`** (creates `crm_people` + `site_team()`, and the website's selfie storage). Until then the Employees tab says the table is missing; applications are still emailed to Chanel.
 - [ ] **Chanel creates her account first** on the live site (first account becomes owner)
-- [ ] Fill in Profile: ABN, bank/PayID, review link, deposit %, policy, photo
-- [ ] Check services & prices match the website's pricing
+- [ ] Fill in Profile (Chanel): ABN, bank/PayID, phone, review link, photo. Email, website, service area and 30% deposit are pre-filled.
 - [ ] Supabase → Authentication → URL configuration: confirm the GitHub Pages URL is in Site URL / Redirect URLs (needed for confirm & reset emails)
 - [ ] Optional: turn off public sign-ups in Supabase once the team is set up (Auth → Providers → Email → "Allow new users to sign up")
 - [ ] Decide on the 6 test enquiries in the website's `enquiries` table (Lachlan's tests, 13–14 Nov). They were **not** imported into the CRM. Delete them or keep them.

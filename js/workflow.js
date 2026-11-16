@@ -35,21 +35,43 @@
 
   const DEFAULT_PROFILE = {
     businessName: 'Chanel Monroe Makeup', artistName: 'Chanel Monroe', tagline: 'Bridal & event makeup artist',
-    email: '', phone: '', abn: '', instagram: '@chanelmonroemakeup', website: '',
-    bookingLink: 'https://cal.com/chanelmonroe/enquiry', serviceArea: '', bio: '', avatar: '',
+    email: 'makeup@chanelmonroe.net', phone: '', abn: '', instagram: '@chanelmonroemakeup', website: 'https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/',
+    bookingLink: 'https://cal.com/chanelmonroe/enquiry', serviceArea: 'Gold Coast (travel included within 20 km)', bio: '', avatar: '',
     depositPercent: 30, gstRegistered: false, paymentTermsDays: 7, depositDueDays: 3,
     bankAccountName: '', bsb: '', accountNumber: '', payId: '',
     cancellationPolicy: 'Your deposit secures your date and is non-refundable. Date changes are subject to availability.',
     reviewLink: '', reminderOffsets: '14,7,2,1', callLengthMins: 15
   };
 
+  /* Services = the website's price list (website repo: src/settings/pricing-settings.js, 16 Nov 2026), plus CRM-only add-ons.
+     Seeded on first sign-in only; after that, edit services in Profile & settings. */
   const DEFAULT_SERVICES = [
-    { name: 'Bridal makeup', category: 'Bridal', price: 350, durationMins: 90 },
-    { name: 'Bridal trial', category: 'Bridal', price: 180, durationMins: 90 },
-    { name: 'Bridesmaid / family makeup', category: 'Bridal', price: 160, durationMins: 60 },
-    { name: 'Formal makeup', category: 'Event', price: 140, durationMins: 60 },
-    { name: 'Event / glam makeup', category: 'Event', price: 130, durationMins: 60 },
-    { name: 'Photoshoot makeup', category: 'Event', price: 160, durationMins: 75 },
+    { name: "Bridal look", category: "Bridal & events", price: 375, durationMins: 90, websiteKey: "bridal-look", unit: "per bride" },
+    { name: "Bridal party and family", category: "Bridal & events", price: 170, durationMins: 60, websiteKey: "bridal-party", unit: "per person" },
+    { name: "Formal and graduation", category: "Bridal & events", price: 195, durationMins: 60, websiteKey: "formal", unit: "per person" },
+    { name: "Gala, awards and race day", category: "Bridal & events", price: 220, durationMins: 60, websiteKey: "gala", unit: "per person" },
+    { name: "Milestone celebration", category: "Bridal & events", price: 195, durationMins: 60, websiteKey: "milestone", unit: "per person" },
+    { name: "Wedding trial", category: "Bridal & events", price: 250, durationMins: 90, websiteKey: "trial", unit: "per trial" },
+    { name: "Photoshoot look", category: "Editorial & creative", price: 240, durationMins: 75, websiteKey: "shoot-look", unit: "per look" },
+    { name: "Beauty close-up", category: "Editorial & creative", price: 275, durationMins: 75, websiteKey: "close-up", unit: "per look" },
+    { name: "High fashion and statement", category: "Editorial & creative", price: 300, durationMins: 75, websiteKey: "statement", unit: "per look" },
+    { name: "SFX and prosthetics", category: "Editorial & creative", price: 520, durationMins: 150, websiteKey: "sfx", unit: "per character", from: true },
+    { name: "Body paint", category: "Editorial & creative", price: 600, durationMins: 150, websiteKey: "body-paint", unit: "per person", from: true },
+    { name: "Half day on set", category: "Editorial & creative", price: 720, durationMins: 240, websiteKey: "half-day", unit: "per booking" },
+    { name: "Full day on set", category: "Editorial & creative", price: 1350, durationMins: 480, websiteKey: "full-day", unit: "per booking" },
+    { name: "Halloween", category: "Parties & seasonal", price: 150, durationMins: 60, websiteKey: "halloween", unit: "per person" },
+    { name: "Easter", category: "Parties & seasonal", price: 110, durationMins: 60, websiteKey: "easter", unit: "per person" },
+    { name: "Christmas and New Year", category: "Parties & seasonal", price: 145, durationMins: 60, websiteKey: "christmas", unit: "per person" },
+    { name: "Birthdays and celebrations", category: "Parties & seasonal", price: 145, durationMins: 60, websiteKey: "birthday", unit: "per person" },
+    { name: "Festivals and day parties", category: "Parties & seasonal", price: 100, durationMins: 60, websiteKey: "festival", unit: "per person" },
+    { name: "Hens and themed nights", category: "Parties & seasonal", price: 150, durationMins: 60, websiteKey: "hens", unit: "per person" },
+    { name: "Full character", category: "Parties & seasonal", price: 280, durationMins: 150, websiteKey: "character", unit: "per person" },
+    { name: "Mini face paint (10 people or more)", category: "Parties & seasonal", price: 20, durationMins: 10, websiteKey: "mini-paint", unit: "per person" },
+    { name: "Everyday natural", category: "Natural beauty", price: 145, durationMins: 60, websiteKey: "natural", unit: "per person" },
+    { name: "Headshots and work", category: "Natural beauty", price: 165, durationMins: 60, websiteKey: "headshot", unit: "per person" },
+    { name: "Outdoor and family portraits", category: "Natural beauty", price: 140, durationMins: 60, websiteKey: "portrait", unit: "per person" },
+    { name: "Sensitive skin", category: "Natural beauty", price: 190, durationMins: 60, websiteKey: "sensitive", unit: "per person" },
+    { name: "Makeup lesson", category: "Natural beauty", price: 280, durationMins: 120, websiteKey: "lesson", unit: "per person" },
     { name: 'Strip lashes', category: 'Add-on', price: 20, durationMins: 0 },
     { name: 'Early start (before 6am)', category: 'Add-on', price: 50, durationMins: 0 },
     { name: 'Touch-up kit', category: 'Add-on', price: 35, durationMins: 0 }
