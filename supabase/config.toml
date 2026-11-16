@@ -1,0 +1,3 @@
+# Public website application endpoint; input is validated inside the function.
+[functions.application]
+verify_jwt = false
