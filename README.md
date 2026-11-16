@@ -58,4 +58,4 @@ CHECKLIST.md           running build checklist & roadmap
 ```
 
 ## Editing
-Edit the files and commit to `main`. GitHub Pages republishes within a minute or two. To run locally, any static server works (e.g. `npx serve .`). It talks to the live database, so sign in with a real account.
+Edit the files and commit to `main`. GitHub Pages republishes within a minute or two. **After changing any css/js file, bump the `?v=` number on every file in `index.html`** (e.g. `?v=20261116b` → `?v=20261117a`), or browsers that opened the CRM before keep the old code. To run locally, any static server works (e.g. `npx serve .`). It talks to the live database, so sign in with a real account.
