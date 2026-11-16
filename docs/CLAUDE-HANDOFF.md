@@ -17,7 +17,7 @@ Mobile affiliate popup has compact profile and bounded equal-height photo rows, 
 
 ## Verification and deployment
 
-Run node --test tests/connections.test.cjs and node --check js/app.js. No production records were created during code verification. Import requires a signed-in CRM staff account and writes only when Import profiles is confirmed. Live end-to-end staff verification remains necessary.
+Run node --test tests/connections.test.cjs and node --check js/app.js. Five automated checks passed. Live signed-in import completed: 125 affiliate profiles persisted, 9 published emails and 7 published phones; all Not contacted. A temporary CRM UI TEST associate was created, availability edited, reloaded to verify persistence, and deleted. Completed enquiry filter and list/board navigation verified on the existing completed booking; no booking changes made. No messages sent.
 
 Application backend/configuration and focused migration are in supabase/. See supabase/README.md for deployment; function update is not yet deployed. Website retains an older function source copy; reconcile before redeployment.
 
