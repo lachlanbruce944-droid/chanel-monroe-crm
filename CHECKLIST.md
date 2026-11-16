@@ -41,3 +41,8 @@ _Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at
 ## 📝 Notes / decisions
 - Repo is public (free GitHub Pages needs public). No client data is in the repo; all data stays in Supabase behind sign-in.
 - The CRM shares the Supabase project `makeup-website` with the website. CRM tables are all prefixed `crm_`.
+
+## 17 Nov 2026 update
+- Connections / Associates terminology; editable photo profiles, public affiliate import and manual availability/status fields implemented.
+- Enquiries list/filter/board redesign implemented.
+- Database records are created by the signed-in staff import action, not by publishing source. See docs/CLAUDE-HANDOFF.md for pending integrations and verification.
