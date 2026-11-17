@@ -46,3 +46,11 @@ _Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at
 - Connections / Associates terminology; editable photo profiles, public affiliate import and manual availability/status fields implemented.
 - Enquiries list/filter/board redesign implemented.
 - Database records are created by the signed-in staff import action, not by publishing source. See docs/CLAUDE-HANDOFF.md for pending integrations and verification.
+
+## Settings / Connectors (17 Nov)
+- [x] Separate Settings destination, provider windows, real connection-status checks.
+- [x] Staff-authenticated connector service and service-only calendar write lease.
+- [x] Explicit Brisbane job blocks, buffers, overlap checks, idempotent own-event sync and protected Booked transition.
+- [ ] Owner signs into Cal.com, connects Google Calendar/Stripe, and securely configures CAL_API_KEY.
+- [ ] Choose the shared writable Google calendar and verify the Enquiry event checks it; sync existing booked jobs and enable protection.
+- [ ] Live event/payment integration test after account activation. No appointment, payment or Google event was created during deployment.
