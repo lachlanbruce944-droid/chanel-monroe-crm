@@ -155,7 +155,7 @@
       </section>
       <section class="card soft">
         <div class="card-head"><h2>Client enquiry form</h2></div>
-        <p class="muted">Enquiries from the website chat land in the Enquiry column automatically, with a reply reminder. This backup form works the same way. Use it to take an enquiry over the phone.</p>
+        <p class="muted">Enquiries from the website chat land in the Enquiry column automatically, for review and phone consultation approval. This backup form works the same way. Use it to take an enquiry over the phone.</p>
         <div class="row gap"><a class="btn" href="#/enquire" target="_blank">Open client form</a><a class="btn ghost" href="#/new">Add enquiry manually</a></div>
       </section>`
     };
