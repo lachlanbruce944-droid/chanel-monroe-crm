@@ -6,7 +6,7 @@
     icon, stars, toast, modal, confirmBox, toLocalInput, copyText, download, pad } = UI;
   const W = Workflow;
   const $app = () => document.getElementById('app');
-  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all', pipelineMode: 'list', pipelineFilter: 'active' };
+  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all', pipelineMode: 'list', pipelineFilter: 'active', connectionProfession: 'all' };
   const blobCache = new Map();
 
   /* ---------------- routing ---------------- */
@@ -39,6 +39,7 @@
     renderShell(view, p0 || '');
     if (view.after) view.after();
     loadPhotos();
+    loadClientPortraits().catch(err=>console.warn('Client portraits unavailable',err));
   }
   function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
   const go = h => { if (location.hash === h) rerender(); else location.hash = h; };
@@ -354,6 +355,30 @@
   }
 
   /* ================= CLIENTS ================= */
+  const portraitUrls = new Map();
+  function clientPortrait(c,large=false){return `<span class="avatar client-portrait ${large?'large':''}"><span>${esc((c.firstName||'?')[0])}${esc((c.lastName||'')[0]||'')}</span><img data-client-photo="${c.id}" alt="${esc(W.clientName(c))}" hidden></span>`}
+  async function loadClientPortraits(){
+    const images=[...document.querySelectorAll('img[data-client-photo]')];if(!images.length||!Auth.isStaff())return;
+    const missing=images.map(i=>DB.get('clients',i.dataset.clientPhoto)).filter(c=>c&&!c.portraitPhotoId&&!c.portraitHidden);
+    const bookings=DB.list('bookings').filter(b=>missing.some(c=>c.id===b.clientId)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+    const ids=[...new Set(bookings.map(b=>b.websiteEnquiryId||b.answers?.website?.enquiryId).filter(Boolean))],paths=new Map();
+    for(let n=0;n<ids.length;n+=100){const {data,error}=await DB.client.from('enquiries').select('id,selfie_path').in('id',ids.slice(n,n+100));if(!error)(data||[]).forEach(e=>{if(e.selfie_path)paths.set(e.id,e.selfie_path)})}
+    for(const img of images){const c=DB.get('clients',img.dataset.clientPhoto);if(!c||c.portraitHidden)continue;
+      const booking=bookings.find(b=>b.clientId===c.id&&paths.has(b.websiteEnquiryId||b.answers?.website?.enquiryId));
+      const path=booking&&paths.get(booking.websiteEnquiryId||booking.answers?.website?.enquiryId);const key=c.portraitPhotoId?'crm:'+c.portraitPhotoId:path?'selfie:'+path:'';if(!key)continue;
+      let cached=portraitUrls.get(key);if(!cached||cached.until<Date.now()){
+        let url=null;if(c.portraitPhotoId)url=await DB.getBlob(c.portraitPhotoId);else{const {data,error}=await DB.client.storage.from('selfies').createSignedUrl(path,600);if(!error)url=data.signedUrl}
+        cached={url,until:Date.now()+(url?540000:60000)};portraitUrls.set(key,cached);
+      }
+      if(cached.url&&img.isConnected){img.onload=()=>{img.hidden=false;img.previousElementSibling.hidden=true};img.onerror=()=>{img.hidden=true;img.previousElementSibling.hidden=false};img.src=cached.url}
+    }
+  }
+  async function saveClientPortrait(c,file){
+    if(!file||!file.type.startsWith('image/'))throw Error('Choose an image file.');if(file.size>10*1024*1024)throw Error('Choose an image smaller than 10 MB.');
+    const image=await UI.resizeImage(file,600,.85),id=DB.uid();await DB.putBlob(id,image);
+    try{await DB.save('clients',{...c,portraitPhotoId:id,portraitHidden:false})}catch(e){await DB.removeBlob(id).catch(()=>{});throw e}
+    if(c.portraitPhotoId)await DB.removeBlob(c.portraitPhotoId).catch(()=>{});
+  }
   function viewClients() {
     const clients = DB.list('clients').sort((a, b) => W.clientName(a).localeCompare(W.clientName(b)));
     return {
@@ -363,7 +388,7 @@
         const bs = DB.list('bookings', b => b.clientId === c.id).sort((a, z) => (z.eventDate || '').localeCompare(a.eventDate || ''));
         const spent = DB.list('payments', p => p.clientId === c.id).reduce((s, p) => s + +p.amount, 0);
         return `<li class="client-row" data-search="${esc((W.clientName(c) + ' ' + (c.email || '') + ' ' + (c.phone || '') + ' ' + (c.instagram || '')).toLowerCase())}">
-          <a class="list-row" href="#/client/${c.id}"><div class="avatar">${esc((c.firstName || '?')[0])}${esc((c.lastName || '')[0] || '')}</div>
+          <a class="list-row" href="#/client/${c.id}">${clientPortrait(c)}
           <div class="grow"><strong>${esc(W.clientName(c))}</strong><small>${esc(c.phone || '')}${c.email ? ' · ' + esc(c.email) : ''}</small></div>
           <div class="right"><small>${bs.length} booking${bs.length === 1 ? '' : 's'}</small>${spent ? `<small>${money(spent)} paid</small>` : ''}</div>${bs[0] ? stageBadge(bs[0]) : ''}</a></li>`;
       }).join('')}</ul></section>` : empty('No clients yet.', '<a class="btn primary" href="#/new">Add the first enquiry</a>')
@@ -381,7 +406,7 @@
     return {
       title: W.clientName(c), subtitle: `Client since ${fmtShort(c.createdAt)} · ${money(spent)} paid · ${esc(c.source || '')}`, back: '#/clients',
       actions: `<a class="btn primary sm" href="#/new/${c.id}">${icon('plus')} New booking</a><button class="btn ghost sm" data-act="deleteClient" data-id="${c.id}">Delete</button>`,
-      html: `<div class="detail">
+      html: `<section class="card"><div class="client-photo-head">${clientPortrait(c,true)}<div><strong>${esc(W.clientName(c))}</strong><p class="small muted">Private client photo · enquiry selfie used when available</p><label class="btn sm">Add / change photo<input type="file" accept="image/*" hidden data-change="clientPhoto" data-id="${c.id}"></label><button class="btn ghost sm" data-act="removeClientPhoto" data-id="${c.id}">Remove photo</button></div></div></section><div class="detail">
         <div class="detail-main">
           <section class="card"><div class="card-head"><h2>Details</h2></div>
             <form data-form="client" data-id="${c.id}" class="form-grid">
@@ -513,6 +538,17 @@
   const safeWeb = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch (_) { return ''; } };
   const handleOf = value => String(value || '').toLowerCase().replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/^@/, '').split(/[/?#]/)[0].trim();
   const CONNECTION_STATES = { prospect: 'Not contacted', contacted: 'Contacted', connected: 'Connected' };
+  const PROFESSIONS=['Hair','Makeup','Nails','Lashes & brows','Spray tan','Skin care','Tattoo','Photography','Beauty','Other'];
+  function profileProfessions(x){
+    if(Array.isArray(x.professions)&&x.professions.length)return x.professions.filter(p=>PROFESSIONS.includes(p));
+    const role=String(x.role||'').toLowerCase(),notes=String(x.notes||'').toLowerCase(),found=[];
+    const add=p=>{if(!found.includes(p))found.push(p)};
+    if(/hair/.test(role))add('Hair');if(/make.?up|\bmua\b/.test(role))add('Makeup');if(/nail/.test(role))add('Nails');if(/lash|brow/.test(role))add('Lashes & brows');if(/spray.?tan/.test(role))add('Spray tan');if(/tattoo/.test(role))add('Tattoo');if(/photo/.test(role))add('Photography');
+    if(/hair\s*(?:&|and|\/)\s*make.?up|make.?up\s*(?:&|and|\/)\s*hair/.test(notes)){add('Hair');add('Makeup')}
+    if(/make.?up artist|\bmua\b/.test(notes))add('Makeup');
+    if(/hairstylist|hair stylist|hairdresser/.test(notes))add('Hair');if(/nail tech|nail artist/.test(notes))add('Nails');if(/lash|brow/.test(notes))add('Lashes & brows');if(/spray.?tan/.test(notes))add('Spray tan');if(/facials|skin therapist|skin treatments|skin clinic/.test(notes))add('Skin care');if(/cosmetic tattoo|tattoo artist/.test(notes))add('Tattoo');
+    if(!found.length)add(/cosmetic|beauty/.test(role)?'Beauty':'Other');return found;
+  }
   function viewEmployees(tab) {
     if (DB.missing.people) return { title: 'Connections', html: empty('Connections needs the people database table. See supabase/README.md.') };
     const t = PEOPLE_TABS.find(x => x[0] === tab) || PEOPLE_TABS[0];
@@ -524,10 +560,10 @@
       return `<article class="connection-card person-row" data-search="${esc([personName(x),x.role,x.email,x.phone,x.instagram,x.areas].join(' ').toLowerCase())}">
         <div class="connection-cover">${photo ? `<img src="${esc(photo)}" alt="${esc(personName(x))}" loading="lazy" referrerpolicy="no-referrer">` : `<div class="connection-placeholder">${esc(personName(x).slice(0,2).toUpperCase())}</div>`}
           <span class="connection-state ${connected ? 'connected' : ''}" title="Relationship status, manually confirmed"><span aria-hidden="true">${connected ? '●' : '○'}</span> ${esc(status)}</span></div>
-        <div class="connection-body"><span class="badge">${x.kind === 'team' ? 'Associate' : 'Affiliate'}</span><h2>${esc(personName(x))}</h2><p class="muted">${esc(x.role || 'Add a role')}${x.areas ? ' · '+esc(x.areas) : ''}</p>
-          <div class="connection-contact">${x.email ? `<a href="mailto:${esc(x.email)}">${icon('mail')} ${esc(x.email)}</a>` : '<span class="muted">Email not provided</span>'}
+        <div class="connection-body"><span class="badge">${x.kind === 'team' ? 'Associate' : 'Affiliate'}</span><h2>${esc(personName(x))}</h2><div class="profession-tags">${profileProfessions(x).map(p=>`<span class="badge">${esc(p)}</span>`).join('')}</div><p class="muted">${esc(x.role || 'Add a role')}${x.areas ? ' · '+esc(x.areas) : ''}</p>
+          ${safeWeb(x.schedulingUrl)?`<a class="btn sm" href="${esc(safeWeb(x.schedulingUrl))}" target="_blank" rel="noopener noreferrer">Book via ${esc(x.schedulingProvider||'booking page')} ↗</a>`:''}<div class="connection-contact">${x.email ? `<a href="mailto:${esc(x.email)}">${icon('mail')} ${esc(x.email)}</a>` : '<span class="muted">Email not provided</span>'}
           ${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^+0-9]/g,''))}">${icon('phone')} ${esc(x.phone)}</a>` : '<span class="muted">Mobile not provided</span>'}</div>
-          <details><summary>Profile & availability</summary><dl class="kv">${[['Instagram',esc(x.instagram || 'Not provided')],['Website',site ? `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">Open website ↗</a>` : 'Not provided'],['Availability',esc(x.availability || 'Not provided').replace(/\n/g,'<br>')],['Time zone',esc(x.scheduleTimezone || 'Australia/Brisbane')],['Scheduling software',esc(x.schedulingProvider || 'Not set')],['Booking page',scheduling ? `<a href="${esc(scheduling)}" target="_blank" rel="noopener noreferrer">Open booking page ↗</a>` : 'Not provided'],['Calendar sync','Not linked — availability is entered manually'],['Notes',esc(x.notes || '').replace(/\n/g,'<br>')],['Source',esc(x.source || '')]].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></details>
+          <details><summary>Profile & availability</summary><dl class="kv">${[['Instagram',esc(x.instagram || 'Not provided')],['Website',site ? `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">Open website ↗</a>` : 'Not provided'],['Availability',esc(x.availability || 'Not provided').replace(/\n/g,'<br>')],['Time zone',esc(x.scheduleTimezone || 'Australia/Brisbane')],['Scheduling software',esc(x.schedulingProvider || 'Not set')],['Booking page',scheduling ? `<a href="${esc(scheduling)}" target="_blank" rel="noopener noreferrer">Open booking page ↗</a>` : 'Not provided'],['Booking link review',esc(x.bookingLinkStatus||'Not reviewed')],['Published booking links',(x.bookingLinks||[]).filter(l=>safeWeb(l.url)).map(l=>`<a href="${esc(safeWeb(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.label||l.provider||'Booking page')} ↗</a>${l.status==='Provider booking unavailable'?' — provider unavailable':''}`).join('<br>')||'No direct booking link verified'],['Published bio links',(x.publishedLinks||[]).filter(l=>safeWeb(l.url)).map(l=>`<a href="${esc(safeWeb(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.label||'Published link')} ↗</a>`).join('<br>')||'Not reviewed'],['Booking note',esc(x.bookingNote||'')],['Calendar sync','Not linked — availability is entered manually'],['Notes',esc(x.notes || '').replace(/\n/g,'<br>')],['Source',esc(x.source || '')]].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></details>
           <div class="row gap"><button class="btn primary sm" data-act="editPerson" data-id="${x.id}">Edit profile</button>
           ${x.status === 'applied' ? `<button class="btn sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Approve</button><button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="declined">Decline</button>` : x.status === 'active' ? `<button class="btn ghost sm" data-act="personStatus" data-id="${x.id}" data-arg="inactive">Archive</button>` : `<button class="btn sm" data-act="personStatus" data-id="${x.id}" data-arg="active">Restore</button>`}
           ${x.kind === 'team' && x.status === 'active' ? `<button class="btn ghost sm" data-act="personShow" data-id="${x.id}">${x.showOnSite ? 'Hide from website' : 'Show on website'}</button>` : ''}
@@ -535,8 +571,9 @@
     };
     return { title: 'Connections', subtitle: `${all.filter(x=>x.kind==='team'&&x.status==='active').length} associates · ${all.filter(x=>x.kind==='affiliate'&&x.status==='active').length} affiliates · ${all.filter(x=>x.connectionStatus==='connected').length} connected`,
       actions: `<label class="search">${icon('search')}<input type="search" placeholder="Name, service or contact" data-filter=".person-row"></label><button class="btn primary sm" data-act="addPerson">${icon('plus')} Add a connection</button>`,
-      html: `<section class="card soft"><div class="card-head"><h2>Your professional network</h2><button class="btn sm" data-act="importAffiliates" ${candidates.length ? '' : 'disabled'}>Import website affiliates (${candidates.length})</button></div><p class="muted">Photo profiles, contact details and manually entered availability. The status dot records your relationship; scheduling software is not connected yet. Import keeps existing profiles and does not send messages.</p><div class="row gap"><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=team" target="_blank" rel="noopener">Associate application ↗</a><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=affiliate" target="_blank" rel="noopener">Affiliate application ↗</a></div></section>
-      <nav class="seg">${PEOPLE_TABS.map(([k,l,f])=>`<a href="#/employees/${k}" class="${k===t[0]?'active':''}">${l} <b>${all.filter(f).length}</b></a>`).join('')}</nav><div class="connections-grid">${list.length ? list.map(row).join('') : empty(t[0]==='applications' ? 'New website applications appear here. View Associates or Affiliates for approved profiles.' : 'No profiles here yet. Add a connection or import website affiliates.')}</div>` };
+      html: `<section class="card soft"><div class="card-head"><h2>Your professional network</h2><div class="row gap"><button class="btn sm" data-act="refreshBookingLinks">Update Instagram booking links</button><button class="btn sm" data-act="importAffiliates" ${candidates.length ? '' : 'disabled'}>Import website affiliates (${candidates.length})</button></div></div><p class="muted">Photo profiles, contact details and manually entered availability. The status dot records your relationship; scheduling software is not connected yet. Import keeps existing profiles and does not send messages.</p><div class="row gap"><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=team" target="_blank" rel="noopener">Associate application ↗</a><a href="https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/apply.html?type=affiliate" target="_blank" rel="noopener">Affiliate application ↗</a></div></section>
+      <nav class="seg">${PEOPLE_TABS.map(([k,l,f])=>`<a href="#/employees/${k}" class="${k===t[0]?'active':''}">${l} <b>${all.filter(f).length}</b></a>`).join('')}</nav><nav class="profession-filters" aria-label="Filter connections by profession"><button class="btn sm" data-act="connectionProfession" data-arg="all" aria-pressed="${!state.connectionProfession||state.connectionProfession==='all'}">All professions</button>${PROFESSIONS.filter(p=>list.some(x=>profileProfessions(x).includes(p))).map(p=>`<button class="btn sm" data-act="connectionProfession" data-arg="${esc(p)}" aria-pressed="${state.connectionProfession===p}">${esc(p)} (${list.filter(x=>profileProfessions(x).includes(p)).length})</button>`).join('')}</nav>
+      ${list.length ? PROFESSIONS.filter(p=>(!state.connectionProfession||state.connectionProfession==='all'||state.connectionProfession===p)&&list.some(x=>profileProfessions(x).includes(p))).map(p=>`<section class="profession-group"><h2>${esc(p)} <small class="muted">${list.filter(x=>profileProfessions(x).includes(p)).length}</small></h2><div class="connections-grid">${list.filter(x=>profileProfessions(x).includes(p)).map(row).join('')}</div></section>`).join('')||empty('No profiles for this profession in this view. Choose All professions.') : empty(t[0]==='applications'?'New website applications appear here.':'No profiles here yet. Add a connection or import website affiliates.')}` };
   }
   async function editConnection(id) {
     const x = id ? DB.get('people', id) : {kind:'team',status:'active',connectionStatus:'prospect'}; if(!x)return;
@@ -544,14 +581,14 @@
     await modal({title:id?'Edit connection':'Add a connection',wide:true,body:`<div class="form-grid">
       <label>Type<select name="kind"><option value="team" ${x.kind==='team'?'selected':''}>Associate</option><option value="affiliate" ${x.kind==='affiliate'?'selected':''}>Affiliate</option></select></label>
       <label>Relationship status<select name="connectionStatus">${Object.entries(CONNECTION_STATES).map(([k,v])=>`<option value="${k}" ${x.connectionStatus===k?'selected':''}>${v}</option>`).join('')}</select></label>
-      ${field('firstName','First name')}${field('lastName','Last name')}${field('businessName','Business / profile name')}${field('role','Role / service')}${field('email','Email','email')}${field('phone','Mobile','tel')}${field('instagram','Instagram handle')}${field('website','Website','url')}${field('photoUrl','Profile image URL','url')}${field('areas','Service areas')}
+      <fieldset class="span-2"><legend>Professions — select all that apply</legend><div class="profession-options">${PROFESSIONS.map(p=>`<label class="check"><input type="checkbox" name="professions[]" value="${esc(p)}" ${profileProfessions(x).includes(p)?'checked':''}>${esc(p)}</label>`).join('')}</div></fieldset>${field('firstName','First name')}${field('lastName','Last name')}${field('businessName','Business / profile name')}${field('role','Role / service')}${field('email','Email','email')}${field('phone','Mobile','tel')}${field('instagram','Instagram handle')}${field('website','Website','url')}${field('photoUrl','Profile image URL','url')}${field('areas','Service areas')}
       <label class="span-2">Availability / weekly schedule<textarea name="availability" rows="4" placeholder="Mon 9–5, Tue unavailable; dates or exceptions…">${esc(x.availability||'')}</textarea></label>
       ${field('scheduleTimezone','Time zone (e.g. Australia/Brisbane)')}${field('schedulingProvider','Scheduling software (e.g. Fresha, Timely)')}${field('schedulingUrl','Public booking page URL','url')}
       <label class="span-2">Notes<textarea name="notes" rows="4">${esc(x.notes||'')}</textarea></label></div><p class="small muted">A booking page link does not grant calendar access. Never paste passwords or API keys here.</p>`,
       async onSubmit(f){ if(!f.firstName&&!f.businessName)throw Error('Enter a first name or business name.');
         for(const k of ['website','photoUrl','schedulingUrl'])if(f[k]&&!safeWeb(f[k]))throw Error('Use a full http or https URL for '+k);
         if(f.scheduleTimezone){try{new Intl.DateTimeFormat('en',{timeZone:f.scheduleTimezone})}catch(_){throw Error('Enter a valid time zone, such as Australia/Brisbane.')}}
-        const saved={...x,...f,showOnSite:f.kind==='team' ? !!x.showOnSite : false,source:x.source||'Added manually',application:x.application||{}};
+        const saved={...x,...f,professions:(f.professions||[]).filter(p=>PROFESSIONS.includes(p)),showOnSite:f.kind==='team' ? !!x.showOnSite : false,source:x.source||'Added manually',application:x.application||{}};
         if(f.connectionStatus==='connected'&&x.connectionStatus!=='connected')saved.connectedAt=new Date().toISOString();
         await DB.save('people',saved);toast('Profile saved');setTimeout(()=>go('#/employees/'+(saved.status==='applied'?'applications':saved.kind==='team'?'team':'affiliates')));
       }});
@@ -913,8 +950,21 @@
     },
     async personShow(d) { const x = DB.get('people', d.id); if (!x) return; await DB.save('people', { ...x, showOnSite: !x.showOnSite }); toast(x.showOnSite ? 'Hidden from the website' : 'Now on the website’s About page'); rerender(); },
     async deletePerson(d) { const x = DB.get('people', d.id); if (x && await confirmBox(`Delete ${personName(x)}?`, 'Delete', true)) { await DB.remove('people', d.id); toast('Deleted'); rerender(); } },
+    connectionProfession(d){state.connectionProfession=d.arg;rerender();},
     async addPerson() { await editConnection(); },
     async editPerson(d) { await editConnection(d.id); },
+    async refreshBookingLinks(d,el){
+      const audit=window.AFFILIATE_BOOKING_LINKS||[];if(!audit.length)throw Error('Booking-link review data is not loaded. Refresh the page.');
+      if(!await confirmBox('Update existing connection profiles with the Instagram link review? Manual booking URLs and relationship statuses are preserved. No bookings or messages will be created.','Update links'))return;
+      el.disabled=true;let updated=0;
+      try{for(const review of audit){for(const x of DB.list('people').filter(x=>handleOf(x.instagram)===review.handle||x.websiteAffiliateHandle===review.handle)){
+        if(x.bookingLinkAuditVersion==='2026-11-17-v1')continue;
+        const primary=review.bookingLinks.find(l=>l.status==='Published booking link'&&safeWeb(l.url));
+        const next={...x,bookingLinks:review.bookingLinks,publishedLinks:review.publishedLinks,bookingNote:review.bookingNote,bookingLinkStatus:review.status,bookingLinksCheckedAt:review.checkedAt,bookingLinkSource:review.source,bookingLinkAuditVersion:'2026-11-17-v1'};
+        if(!x.schedulingUrl&&primary&&!review.bookingNote){next.schedulingUrl=primary.url;next.schedulingProvider=x.schedulingProvider||primary.provider}
+        await DB.save('people',next);updated++;
+      }}toast(updated+' profiles updated');rerender();}finally{el.disabled=false}
+    },
     async importAffiliates(d,el) {
       if(!await confirmBox('Import public website affiliates as editable profiles? Existing Instagram profiles are skipped. Missing contacts stay blank. No messages will be sent.','Import profiles'))return;
       el.disabled=true;let n=0;
@@ -925,12 +975,13 @@
       catch(e){toast(n+' imported before the error. Retry safely to import the rest.','error');throw e}
       finally{el.disabled=false;}
     },
+    async removeClientPhoto(d){const c=DB.get('clients',d.id);if(!c)return;await DB.save('clients',{...c,portraitPhotoId:'',portraitHidden:true});if(c.portraitPhotoId)await DB.removeBlob(c.portraitPhotoId).catch(()=>{});toast('Profile photo removed');rerender();},
     async addClient() {
       await modal({ title: 'New client', submitLabel: 'Add client',
         body: `<div class="form-grid"><label>First name<input name="firstName" required></label><label>Last name<input name="lastName"></label>
           <label>Email<input type="email" name="email"></label><label>Mobile<input type="tel" name="phone"></label>
-          <label class="span-2">Instagram<input name="instagram"></label></div>`,
-        async onSubmit(f) { const c = await DB.save('clients', { ...f, source: 'Added manually' }); setTimeout(() => go(`#/client/${c.id}`)); } });
+          <label class="span-2">Instagram<input name="instagram"></label><label class="span-2">Selfie / profile photo (optional)<input type="file" name="portraitFiles" accept="image/*"></label></div>`,
+        async onSubmit(f) { const {portraitFiles,...fields}=f;const c={...fields,id:DB.uid(),source:'Added manually'};if(portraitFiles?.[0])await saveClientPortrait(c,portraitFiles[0]);else await DB.save('clients',c);setTimeout(() => go(`#/client/${c.id}`)); } });
     },
     async deleteClient(d) {
       const c = DB.get('clients', d.id);
@@ -1054,6 +1105,7 @@
       await W.log(b, 'photo', `${files.length} ${kind} photo${files.length > 1 ? 's' : ''} added`);
       rerender();
     },
+    async clientPhoto(el){const c=DB.get('clients',el.dataset.id);if(!c||!el.files?.[0])return;await saveClientPortrait(c,el.files[0]);toast('Client photo saved');rerender();},
     async avatar(el) {
       const f = el.files[0]; if (!f) return;
       await W.saveProfile({ avatar: await UI.resizeImage(f, 400, 0.85) }); rerender();
