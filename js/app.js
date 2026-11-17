@@ -244,6 +244,7 @@
       : `<section class="card next">
         <div class="next-head"><span class="eyebrow">Step ${si + 1} of ${W.STAGES.length}</span><h2>${esc(W.stage(b.stage).label)}</h2></div>
         <p>${esc(W.stage(b.stage).hint)}</p>
+        ${b.consultation ? `<p class="callout">${icon('phone')} Cal.com · ${b.consultation.status === 'confirmed' ? 'Confirmed' : 'Awaiting approval'} · ${fmtDateTime(b.consultation.startTime)}</p>` : ''}
         ${b.stage === 'call' && b.callAt ? `<p class="callout">${icon('phone')} Call ${relDays(ymd(new Date(b.callAt)))} · ${fmtDateTime(b.callAt)}</p>` : ''}
         ${chk.next && chk.reasons.length ? `<ul class="checks">${chk.reasons.map(r => `<li class="${r.soft ? 'soft' : 'hard'}">${esc(r.text)}</li>`).join('')}</ul>` : ''}
         <div class="next-actions">${STAGE_ACTIONS[b.stage].map(([act, arg, label, cls]) => `<button class="btn ${cls}" data-act="${act}" data-id="${b.id}" data-arg="${arg}">${label}</button>`).join('')}</div>
