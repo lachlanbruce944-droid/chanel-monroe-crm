@@ -170,6 +170,7 @@
   /* ---------- stage moves ---------- */
   async function setStage(b, key, note = '') {
     const prev = b.stage;
+    if(key === 'booked' && window.Connectors) await window.Connectors.ensureBlock(fresh(b));
     b = await DB.save('bookings', { ...fresh(b), stage: key, stageChangedAt: new Date().toISOString() });
     await log(b, 'stage', `Moved to ${stage(key).label}${note ? ' — ' + note : ''}`, { from: prev, to: key });
     await onEnter(b, key);
@@ -374,6 +375,12 @@
 
   async function saveBooking(b, patch, what = 'Details updated') {
     const before = fresh(b);
+    if(DB.setting('connectorPreferences',{}).enabled && before.calendarSync){
+      const calendarStart = before.calendarStart && new Date(before.calendarStart).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
+      const calendarEnd = before.calendarEnd && new Date(before.calendarEnd).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
+      if(patch.eventDate && patch.eventDate !== before.eventDate && ![calendarStart,calendarEnd].includes(patch.eventDate))
+        throw new Error('Move the Google Calendar time block to the new event date before saving details.');
+    }
     b = await DB.save('bookings', { ...before, ...patch });
     await log(b, 'edit', what);
     if (patch.eventDate !== undefined && patch.eventDate !== before.eventDate && idx(b.stage) >= idx('booked') && idx(b.stage) <= idx('day'))
@@ -417,6 +424,7 @@
   }
 
   async function markLost(b, reason) {
+    if(window.Connectors && fresh(b)?.calendarSync) await window.Connectors.removeBlock(fresh(b));
     b = await DB.save('bookings', { ...fresh(b), status: 'lost', lostReason: reason || '' });
     await log(b, 'status', `Marked lost${reason ? ': ' + reason : ''}`);
     for (const r of DB.list('reminders', r => r.bookingId === b.id && r.status === 'pending'))
@@ -429,6 +437,7 @@
     return b;
   }
   async function deleteBooking(b) {
+    if(window.Connectors && fresh(b)?.calendarSync) await window.Connectors.removeBlock(fresh(b));
     for (const s of ['payments', 'invoices', 'reminders', 'reviews', 'activity'])
       for (const r of DB.list(s, x => x.bookingId === b.id)) await DB.remove(s, r.id);
     for (const p of DB.list('photos', x => x.bookingId === b.id)) { await DB.removeBlob(p.id); await DB.remove('photos', p.id); }
