@@ -421,3 +421,6 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 
 /* Settings connectors */
 .connector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:18px}.connector-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px}.connector-card h2,.connector-card p{margin:0}.connector-card .btn{margin-top:auto}.connector-brand{width:52px;height:52px;display:grid;place-items:center;border-radius:14px;font-size:23px;font-weight:700;background:#242424;color:#fff}.connector-brand.google{background:#e9f0ff;color:#3264ce}.connector-brand.stripe{background:#635bff;color:#fff}#connectorSettings>.card{padding:24px}#connectorProtection .check{align-items:flex-start}.tabbar{grid-template-columns:repeat(6,minmax(0,1fr))}@media(max-width:800px){.connector-grid{grid-template-columns:1fr}#connectorSettings>.card{padding:16px}}
+
+/* Keep connector cards usable on narrow or zoomed screens. */
+.connector-card{min-width:0;overflow-wrap:anywhere}.connector-card .btn{max-width:100%;white-space:normal;text-align:center}.connector-card h2{font-size:clamp(18px,5vw,24px)}.connector-grid{min-width:0}
