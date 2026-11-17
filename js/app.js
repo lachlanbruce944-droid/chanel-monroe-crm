@@ -53,7 +53,7 @@
       ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
       ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
-    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'employees', 'profile'].includes(n[0]));
+    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'profile'].includes(n[0]));
     $app().innerHTML = `
     <div class="shell">
       <aside class="sidebar">
