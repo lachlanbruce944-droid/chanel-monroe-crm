@@ -65,7 +65,7 @@ textarea { resize: vertical; }
 .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .content { padding: 16px; max-width: 1280px; overflow-x: clip; }
 .detail-main, .detail-side { min-width: 0; }
-.tabbar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, 1fr); background: rgba(255,253,251,.96); backdrop-filter: blur(12px);
+.tabbar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); background: rgba(255,253,251,.96); backdrop-filter: blur(12px);
   border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
 .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); padding: 4px; text-decoration: none; }
 .tabbar a.active { color: var(--ink); }
