@@ -189,8 +189,8 @@
 
   /* ================= BOOKING DETAIL ================= */
   const STAGE_ACTIONS = {
-    enquiry: [['tpl', 'enquiry_reply', 'Reply to enquiry', ''], ['scheduleCall', '', 'Schedule phone call', 'primary']],
-    call: [['tpl', 'call_confirm', 'Confirm call', ''], ['scheduleCall', '', 'Reschedule', 'ghost'], ['logCall', '', 'Log call notes', 'primary']],
+    enquiry: [['reviewEnquiry', '', 'Review enquiry & notes', ''], ['approveConsultation', '', 'Approve phone consultation', 'primary']],
+    call: [['reviewEnquiry', '', 'Review notes', 'ghost'], ['logCall', '', 'Complete call & save details', 'primary']],
     updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Send quote & deposit request', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
@@ -245,13 +245,15 @@
       : `<section class="card next">
         <div class="next-head"><span class="eyebrow">Step ${si + 1} of ${W.STAGES.length}</span><h2>${esc(W.stage(b.stage).label)}</h2></div>
         <p>${esc(W.stage(b.stage).hint)}</p>
+        ${b.enquiryReviewNotes ? `<div class="notes"><h3>Enquiry review</h3><p>${esc(b.enquiryReviewNotes).replace(/\n/g, '<br>')}</p></div>` : ''}
+        ${!b.consultation && b.stage === 'enquiry' ? '<p class="callout">Waiting for the client’s Cal.com phone consultation request to sync.</p>' : ''}
         ${b.consultation ? `<p class="callout">${icon('phone')} Cal.com · ${b.consultation.status === 'confirmed' ? 'Confirmed' : 'Awaiting approval'} · ${fmtDateTime(b.consultation.startTime)}</p>` : ''}
         ${b.stage === 'call' && b.callAt ? `<p class="callout">${icon('phone')} Call ${relDays(ymd(new Date(b.callAt)))} · ${fmtDateTime(b.callAt)}</p>` : ''}
         ${chk.next && chk.reasons.length ? `<ul class="checks">${chk.reasons.map(r => `<li class="${r.soft ? 'soft' : 'hard'}">${esc(r.text)}</li>`).join('')}</ul>` : ''}
         <div class="next-actions">${STAGE_ACTIONS[b.stage].map(([act, arg, label, cls]) => `<button class="btn ${cls}" data-act="${act}" data-id="${b.id}" data-arg="${arg}">${label}</button>`).join('')}</div>
         <div class="next-foot">
           ${si > 0 ? `<button class="link" data-act="back" data-id="${b.id}">← Back a step</button>` : '<span></span>'}
-          ${chk.next ? `<button class="link" data-act="advance" data-id="${b.id}">Skip to ${esc(chk.next.short)} →</button>` : ''}
+          ${chk.next && !['enquiry','call'].includes(b.stage) ? `<button class="link" data-act="advance" data-id="${b.id}">Skip to ${esc(chk.next.short)} →</button>` : ''}
         </div>
       </section>`;
 
@@ -330,7 +332,7 @@
 
           <section class="card">
             <div class="card-head"><h2>Messages</h2></div>
-            <div class="tpl-list">${Object.entries(W.TEMPLATES).filter(([, v]) => Math.abs(W.idx(v.stage) - si) <= 1).map(([k, v]) => `<button class="tpl" data-act="tpl" data-id="${b.id}" data-arg="${k}">${icon('message')}${esc(v.label)}</button>`).join('')}
+            <div class="tpl-list">${Object.entries(W.TEMPLATES).filter(([k, v]) => !['enquiry_reply','call_confirm'].includes(k) && Math.abs(W.idx(v.stage) - si) <= 1).map(([k, v]) => `<button class="tpl" data-act="tpl" data-id="${b.id}" data-arg="${k}">${icon('message')}${esc(v.label)}</button>`).join('')}
               <button class="tpl muted" data-act="allTemplates" data-id="${b.id}">All templates…</button></div>
           </section>
 
@@ -502,7 +504,7 @@
     const b = DB.get('bookings', inv.bookingId) || {}; const c = DB.get('clients', inv.clientId) || {}; const p = W.profile();
     return {
       title: `Invoice ${inv.number}`, back: b.id ? `#/booking/${b.id}` : '#/invoices',
-      actions: `<button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
+      actions: `<button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="create">${inv.stripeInvoiceId ? "View Stripe payment link" : "Create Stripe payment link"}</button><button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="refresh">Refresh payment status</button><button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
       html: `<article class="invoice">
         <header><div>${avatarHtml(p, 'inv-logo')}<h2>${esc(p.businessName)}</h2><p>${esc(p.artistName)}${p.abn ? '<br>ABN ' + esc(p.abn) : ''}${p.phone ? '<br>' + esc(p.phone) : ''}${p.email ? '<br>' + esc(p.email) : ''}</p></div>
           <div class="inv-meta"><h1>${p.gstRegistered ? 'Tax invoice' : 'Invoice'}</h1><p><b>${esc(inv.number)}</b><br>Issued ${fmtDate(inv.issuedAt)}<br>Due ${fmtDate(inv.dueAt)}</p><span class="badge inv-${inv.status}">${inv.status}</span></div></header>
@@ -511,7 +513,7 @@
         <table class="table"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
           <tbody>${inv.items.map(i => `<tr><td>${esc(i.desc)}</td><td class="num">${i.qty}</td><td class="num">${money(i.price)}</td><td class="num">${money(i.qty * i.price)}</td></tr>`).join('')}</tbody>
           <tfoot>${inv.gst ? `<tr><td colspan="3" class="num">GST included</td><td class="num">${money(inv.gst)}</td></tr>` : ''}<tr class="grand"><td colspan="3" class="num">Total ${inv.status === 'paid' ? 'paid' : 'due'}</td><td class="num">${money(inv.total)}</td></tr></tfoot></table>
-        <section class="pay"><h3>How to pay</h3><p>${[p.bankAccountName && 'Account name: ' + esc(p.bankAccountName), p.bsb && 'BSB: ' + esc(p.bsb), p.accountNumber && 'Account: ' + esc(p.accountNumber), p.payId && 'PayID: ' + esc(p.payId)].filter(Boolean).join('<br>') || '<em>Add payment details in Profile → Business settings.</em>'}<br>Reference: ${esc(inv.number)}</p>
+        <section class="pay"><h3>How to pay</h3>${inv.stripeUrl && /^https:\/\/invoice\.stripe\.com\//.test(inv.stripeUrl) ? `<p><a class="btn primary" href="${esc(inv.stripeUrl)}" target="_blank" rel="noopener">Pay invoice securely with Stripe ↗</a></p>` : ""}${inv.stripeStatus ? `<p class="small muted">Stripe: ${esc(inv.stripeStatus)}</p>` : ""}<p>${[p.bankAccountName && 'Account name: ' + esc(p.bankAccountName), p.bsb && 'BSB: ' + esc(p.bsb), p.accountNumber && 'Account: ' + esc(p.accountNumber), p.payId && 'PayID: ' + esc(p.payId)].filter(Boolean).join('<br>') || '<em>Add payment details in Profile → Business settings.</em>'}<br>Reference: ${esc(inv.number)}</p>
           ${p.cancellationPolicy ? `<p class="small muted">${esc(p.cancellationPolicy)}</p>` : ''}</section>
         <footer>Thank you for choosing ${esc(p.businessName)} ♡</footer>
       </article>`
@@ -839,6 +841,28 @@
         onOpen(form, close) { form.addEventListener('click', e => { const b = e.target.closest('[data-key]'); if (b) close(b.dataset.key); }); } });
       if (key) openComposer(d.id, key);
     },
+    async stripeInvoice(d) {
+      const { data, error } = await DB.client.functions.invoke('crm-stripe', { body: { action: d.arg, invoiceId: d.id } });
+      if (error || !data?.ok) throw Error(data?.error || error?.message || 'Stripe invoice connection unavailable');
+      await DB.refresh(); rerender();
+      if (data.url && /^https:\/\/invoice\.stripe\.com\//.test(data.url)) await modal({title:'Stripe invoice payment link',hideSubmit:true,cancelLabel:'Done',body:`<p>Share this link with the client to collect their invoice payment.</p><label>Payment link<input readonly value="${esc(data.url)}"></label><a class="btn primary" href="${esc(data.url)}" target="_blank" rel="noopener">Open Stripe invoice ↗</a><p class="small muted">Payment is recorded after Stripe verification. Creating this link does not email the client or charge their card.</p>`});
+      else toast('Stripe payment status refreshed');
+    },
+    async reviewEnquiry(d) {
+      const b = DB.get('bookings', d.id);
+      await modal({ title: 'Review enquiry', submitLabel: 'Save review',
+        body: `<label>Review notes<textarea name="notes" rows="6" required>${esc(b.enquiryReviewNotes || '')}</textarea></label><p class="muted small">Reviewing this enquiry does not approve the consultation or confirm the makeup booking.</p>`,
+        async onSubmit(f) { await W.reviewEnquiry(b, f.notes); toast('Review saved'); } });
+      rerender();
+    },
+    async approveConsultation(d) {
+      const b = DB.get('bookings', d.id);
+      if (!b.enquiryReviewedAt) return toast('Review the enquiry first');
+      if (!b.consultation?.uid) return toast('Waiting for the Cal.com request to sync');
+      if (!await confirmBox('Approve phone consultation', `Approve the client’s requested call for ${fmtDateTime(b.consultation.startTime)}? This confirms only the phone consultation in Cal.com. The makeup booking still requires a quote and deposit.`)) return;
+      await W.approveConsultation(b);
+      toast('Phone consultation approved'); rerender();
+    },
     async scheduleCall(d) {
       const b = DB.get('bookings', d.id); const def = b.callAt || W.daysFromNow(1, '17:30');
       await modal({ title: 'Schedule phone call', submitLabel: 'Schedule call',
@@ -850,7 +874,7 @@
     },
     async logCall(d) {
       const b = DB.get('bookings', d.id);
-      await modal({ title: b.stage === 'updates' ? 'Add an update' : 'Call notes', submitLabel: 'Save notes', wide: true,
+      await modal({ title: b.stage === 'updates' ? 'Add an update' : 'Complete phone consultation', submitLabel: b.stage === 'updates' ? 'Save update' : 'Save details & prepare quote', wide: true,
         body: `<label>Notes<textarea name="notes" rows="6" required placeholder="Look, timings, number of people, trial, budget, parking…"></textarea></label>
           <p class="small muted">Update anything that changed:</p>
           <div class="form-grid"><label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
