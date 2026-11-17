@@ -296,7 +296,7 @@
     }
     const total = items.reduce((s, i) => s + i.qty * i.price, 0);
     const inv = DB.find('invoices', x => x.bookingId === b.id && x.type === type);
-    if (inv && inv.status === 'paid') return inv;
+    if (inv && (inv.status === 'paid' || inv.stripeInvoiceId)) return inv;
     const saved = await DB.save('invoices', {
       ...(inv || {}), bookingId: b.id, clientId: b.clientId, type,
       number: inv?.number || await nextInvoiceNumber(),
@@ -415,6 +415,7 @@
 
   async function recordPayment(b, { type, amount, method, paidAt, reference }) {
     b = fresh(b);
+    if (DB.find('invoices', i => i.bookingId === b.id && i.stripeInvoiceId && i.status !== 'paid')) throw Error('This booking has an open Stripe invoice. Refresh its payment status or reconcile it in Stripe before recording another payment.');
     amount = +amount;
     if (!(amount > 0)) throw new Error('Enter an amount above $0');
     await DB.save('payments', { bookingId: b.id, clientId: b.clientId, type, amount, method, paidAt: paidAt || today(), reference: reference || '' });
