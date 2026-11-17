@@ -32,6 +32,7 @@
       case 'employees': view = viewEmployees(p1); break;
       case 'marketing': view = viewSoon('Marketing', 'megaphone', 'Campaigns, the mailing list, Instagram posts and referral offers will live here.'); break;
       case 'inventory': view = viewSoon('Inventory', 'box', 'Kit stock, product shades, expiry dates and reorder reminders will live here.'); break;
+      case 'settings': view = window.Connectors ? Connectors.view() : {title:'Settings',html:'<p>Refresh the page to load connector settings.</p>'}; break;
       case 'profile': view = viewProfile(); break;
       case 'new': view = viewNewEnquiry(p1); break;
       default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
@@ -51,9 +52,9 @@
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
       ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
-      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile']];
+      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile'], ['settings', 'box', 'Settings']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
-    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'profile'].includes(n[0]));
+    const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'settings'].includes(n[0]));
     $app().innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -265,6 +266,7 @@
         <div class="detail-main">
           ${nextCard}
 
+          ${window.Connectors ? Connectors.bookingPanel(b) : ''}
           <section class="card" id="details">
             <div class="card-head"><h2>Event details</h2></div>
             ${clashes.length ? `<p class="warn">Heads up: ${clashes.map(x => esc(W.clientName(W.clientOf(x)))).join(', ')} also booked on this date.</p>` : ''}
@@ -818,6 +820,7 @@
 
   /* ================= ACTIONS (buttons) ================= */
   const Actions = {
+    async removeCalendarBlock(d){const b=DB.get('bookings',d.id);if(!await confirmBox('Remove this job’s busy block from Google Calendar? Phone-call times may become available again.','Remove block'))return;await Connectors.removeBlock(b);toast('Calendar block removed');rerender();},
     async logout() { await Auth.logout(); location.hash = '#/'; render(); },
     async recheck() { await Auth.loadStaff(); if (Auth.isStaff()) await afterSignIn(); else toast('Still waiting for access', 'error'); },
     async forgot() {
@@ -1057,6 +1060,7 @@
         ${b ? `<a class="btn primary" href="#/booking/${b.id}">View in CRM</a>` : '<a class="btn" href="#/enquire" data-act="reloadForm">Send another enquiry</a>'}</div>`;
       window.scrollTo(0, 0);
     },
+    async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('Calendar time block synced');rerender();},
     async details(f, form) {
       const b = DB.get('bookings', form.dataset.id);
       await W.saveBooking(b, { eventType: f.eventType, eventDate: f.eventDate, readyBy: f.readyBy, startTime: f.startTime, location: f.location,
