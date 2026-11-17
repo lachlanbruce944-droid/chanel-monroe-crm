@@ -17,8 +17,8 @@
   const { ymd, today, parseYmd, addDays, fmtDate, fmtTime, fmtDateTime, money } = UI;
 
   const STAGES = [
-    { key: 'enquiry',  label: 'Enquiry',            short: 'Enquiry', hint: 'New enquiry. Reply, then book a quick phone call.' },
-    { key: 'call',     label: 'Phone call',         short: 'Call',    hint: 'Call is booked. Have the consult and log your notes.' },
+    { key: 'enquiry',  label: 'Enquiry',            short: 'Enquiry', hint: 'Review the enquiry, save your notes and approve the requested phone consultation.' },
+    { key: 'call',     label: 'Phone call',         short: 'Call',    hint: 'Complete the approved phone consultation and save the details before generating a quote.' },
     { key: 'updates',  label: 'Updates & quote',    short: 'Quote',   hint: 'Lock in the details and services, then send the quote and deposit request.' },
     { key: 'deposit',  label: 'Deposit',            short: 'Deposit', hint: 'Deposit invoice is out. Waiting on payment to secure the date.' },
     { key: 'booked',   label: 'Booked · reminders', short: 'Booked',  hint: 'Date is secured. Reminders are scheduled in the lead-up.' },
@@ -132,10 +132,11 @@
     const t = totals(b);
     switch (b.stage) {
       case 'enquiry':
-        if (!b.callAt) reasons.push({ text: 'Schedule the phone call', soft: true });
+        if (!b.enquiryReviewedAt) reasons.push({ text: 'Review the enquiry and save notes' });
+        if (b.consultation?.status !== 'confirmed') reasons.push({ text: 'Approve the phone consultation in Cal.com' });
         break;
       case 'call':
-        if (!b.callNotes) reasons.push({ text: 'Log notes from the call', soft: true });
+        if (!b.callLoggedAt || !b.callNotes?.trim()) reasons.push({ text: 'Complete the call and save consultation notes' });
         break;
       case 'updates':
         if (!b.eventDate) reasons.push({ text: 'Add the event date' });
@@ -347,7 +348,7 @@
       stageChangedAt: new Date().toISOString()
     });
     await log(b, 'enquiry', `New enquiry via ${source}`);
-    await upsertReminder(b, { kind: 'reply', title: `Reply to ${clientName(client)}’s enquiry`, dueAt: daysFromNow(0, '23:00'), templateKey: 'enquiry_reply' });
+    await upsertReminder(b, { kind: 'enquiry_review', title: `Review ${clientName(client)}’s enquiry`, dueAt: daysFromNow(0, '23:00') });
     for (const file of photos) await addPhoto(b, file, 'inspo', 'Inspiration from enquiry');
     return fresh(b);
   }
@@ -361,8 +362,28 @@
     return fresh(b);
   }
 
+  async function reviewEnquiry(b, notes) {
+    if (!notes?.trim()) throw new Error('Add review notes');
+    b = await DB.save('bookings', { ...fresh(b), enquiryReviewNotes: notes.trim(), enquiryReviewedAt: new Date().toISOString() });
+    await log(b, 'review', 'Enquiry reviewed: ' + notes.trim());
+    await skipKinds(b, ['reply', 'enquiry_review']);
+    return b;
+  }
+
+  async function approveConsultation(b) {
+    b = fresh(b);
+    if (!b.enquiryReviewedAt) throw new Error('Review the enquiry first');
+    if (!b.consultation?.uid) throw new Error('The client’s Cal.com request has not synced yet');
+    const { data, error } = await DB.client.functions.invoke('consultation-approve', { body: { bookingId: b.id } });
+    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Approval failed; the request remains pending');
+    await DB.refresh();
+    return fresh(b);
+  }
+
   async function logCall(b, notes, updates = {}) {
     const cur = fresh(b);
+    if (!notes?.trim()) throw new Error('Add call notes');
+    if (['enquiry', 'call'].includes(cur.stage) && (!cur.enquiryReviewedAt || cur.consultation?.status !== 'confirmed')) throw new Error('Review the enquiry and approve the phone consultation first');
     const patch = { callNotes: [cur.callNotes, notes].filter(Boolean).join('\n\n'), callLoggedAt: new Date().toISOString() };
     for (const k of ['eventDate', 'readyBy', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
     b = await DB.save('bookings', { ...cur, ...patch });
@@ -525,7 +546,7 @@
   window.Workflow = {
     STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
-    createEnquiry, scheduleCall, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
+    createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
     generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };
