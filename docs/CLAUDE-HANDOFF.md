@@ -35,3 +35,9 @@ Google Calendar, SMS, Stripe, MYOB connectors; cancellation flow; ten isolated d
 - Pending: actual calendar OAuth/synchronisation, scheduled messages, Stripe/MYOB and review automation. Booking URLs alone do not grant calendar access. Live checks and migration application must be recorded accurately below.
 
 - Mobile bottom navigation includes Clients and Connections (six tabs), so client-photo controls remain reachable on phones. The staff-only selfie read policy is published as SQL but is NOT applied; it grants access to private enquiry photos and requires approval before browser execution. Manual CRM photo controls are deployed under existing photo-bucket permissions.
+
+## Live verification completed
+
+- Updated all 125 existing affiliate profiles with the dated link review. 52 profiles display a main booking button; 59 booking-related links retained overall. Three unavailable Instagram profiles remain flagged. No appointments or messages created. Manual scheduler values and relationship statuses preserved.
+- Profession groups/filters visible live, with overlapping profiles backed by one database record. Mobile Clients tab restored alongside Connections. Client card photo slots, profile photo controls and the latest version f scripts verified. Manual image upload logic covered by automated storage tests; no real client photos altered during testing.
+- Ten CRM automated tests passed. Staff selfie read migration remains unapplied, pending permission approval.
