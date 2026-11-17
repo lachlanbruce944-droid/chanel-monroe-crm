@@ -413,3 +413,8 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 .enquiry-row:last-child{border-bottom:0}.enquiry-identity{grid-column:1/-1}.enquiry-identity strong{font-size:17px}.enquiry-identity span,.enquiry-identity small,.enquiry-value small{display:block;overflow-wrap:anywhere}
 .enquiry-next{font-size:12px;margin-top:6px;color:var(--muted)}.enquiry-next.overdue{color:var(--bad)}.enquiry-row .btn{justify-self:end}
 @media(min-width:1100px){.enquiry-filters{grid-template-columns:repeat(6,minmax(0,1fr))}.enquiry-row.deal{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1.4fr) auto auto;gap:18px}.enquiry-identity{grid-column:auto}}
+
+/* Private client selfies keep an initials fallback if no authorised image is available. */
+.client-portrait{position:relative;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;flex:none}.client-portrait img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}.client-portrait img[hidden]{display:none}.client-portrait.large{width:88px;height:88px;font-size:28px}.client-photo-head{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.client-photo-head .btn{margin:4px 5px 0 0}
+
+.profession-filters,.profession-options,.profession-tags{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.profession-filters [aria-pressed="true"]{background:var(--ink);color:var(--surface)}.profession-group{margin:24px 0}.profession-group>h2{font-size:24px;margin:0 0 12px}.profession-options label{min-width:140px}.profession-tags .badge{font-size:10px}.profession-options input{width:auto!important}
