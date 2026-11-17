@@ -52,7 +52,7 @@
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
       ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
-      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile'], ['settings', 'box', 'Settings']];
+      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile'], ['settings', 'settings', 'Settings']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
     const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'settings'].includes(n[0]));
     $app().innerHTML = `
