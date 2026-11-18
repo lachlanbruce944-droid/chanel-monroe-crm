@@ -123,10 +123,10 @@
       fail(error, 'Uploading photo');
     },
     async getBlob(id) {
-      const { data, error } = await sb.storage.from(cfg.photoBucket).createSignedUrl(`${id}.jpg`, 60 * 60);
+      const { data, error } = await sb.storage.from(cfg.photoBucket).createSignedUrl(cache.photos.get(id)?.storagePath || `${id}.jpg`, 60 * 60);
       return error ? null : data.signedUrl;
     },
-    async removeBlob(id) { await sb.storage.from(cfg.photoBucket).remove([`${id}.jpg`]); },
+    async removeBlob(id) { await sb.storage.from(cfg.photoBucket).remove([cache.photos.get(id)?.storagePath || `${id}.jpg`]); },
 
     setting(key, fallback) { const r = cache.settings.get(key); return r ? r.value : fallback; },
     async setSetting(key, value) { return DB.save('settings', { id: key, value }); },

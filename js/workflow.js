@@ -17,14 +17,14 @@
   const { ymd, today, parseYmd, addDays, fmtDate, fmtTime, fmtDateTime, money } = UI;
 
   const STAGES = [
-    { key: 'enquiry',  label: 'Enquiry',            short: 'Enquiry', hint: 'Review the enquiry, save your notes and schedule and approve the requested phone consultation in the CRM.' },
-    { key: 'call',     label: 'Phone call',         short: 'Call',    hint: 'Complete the approved phone consultation and save the details before generating a quote.' },
-    { key: 'updates',  label: 'Updates & quote',    short: 'Quote',   hint: 'Lock in the details and services, then send the quote and deposit request.' },
+    { key: 'enquiry',  label: 'Consultation approval',            short: 'Enquiry', hint: 'Check the client details and requested time. Approve the phone consultation and send confirmation; no notes are required before the call.' },
+    { key: 'call',     label: 'Phone consult & notes',         short: 'Call',    hint: 'Complete the approved phone consultation and save the details before generating a quote.' },
+    { key: 'updates',  label: 'Initial quote',    short: 'Quote',   hint: 'Lock in the details and services, then send the quote and deposit request.' },
     { key: 'deposit',  label: 'Deposit',            short: 'Deposit', hint: 'Deposit invoice is out. Waiting on payment to secure the date.' },
     { key: 'booked',   label: 'Booked · reminders', short: 'Booked',  hint: 'Date is secured. Reminders are scheduled in the lead-up.' },
-    { key: 'day',      label: 'The day · photos',   short: 'Day',     hint: 'It’s the day. Upload before/after and day photos.' },
+    { key: 'day',      label: 'Day of service',   short: 'Day',     hint: 'Save before/after photos and videos, additional notes, agreed extra costs and verbal or written feedback.' },
     { key: 'invoice',  label: 'Final invoice',      short: 'Invoice', hint: 'Send the final invoice for the balance owing.' },
-    { key: 'review',   label: 'Review',             short: 'Review',  hint: 'Ask for a review and record it when it comes in.' },
+    { key: 'review',   label: 'Follow-up & review',  short: 'Follow-up', hint: 'Send a thank-you email with the Stripe receipt or final payment link. Record feedback or request a review.' },
     { key: 'complete', label: 'Complete',           short: 'Done',    hint: 'All wrapped up. Lovely work.' }
   ];
   const idx = key => STAGES.findIndex(s => s.key === key);
@@ -110,14 +110,15 @@
     const servicesTotal = lines.reduce((s, l) => s + (+l.qty || 0) * (+l.price || 0), 0);
     const travel = +b.travelFee || 0;
     const discount = +b.discount || 0;
-    const total = Math.max(0, servicesTotal + travel - discount);
+    const additionalCosts = +b.additionalCosts || 0;
+    const total = Math.max(0, servicesTotal + travel + additionalCosts - discount);
     const gst = p.gstRegistered ? total / 11 : 0;
     const deposit = (b.depositAmount !== undefined && b.depositAmount !== null && b.depositAmount !== '')
       ? +b.depositAmount : Math.round(total * (+p.depositPercent || 0) / 100);
     const pays = DB.list('payments', x => x.bookingId === b.id);
     const paid = pays.reduce((s, x) => s + (+x.amount || 0), 0);
     const depositPaid = pays.filter(x => x.type === 'deposit').reduce((s, x) => s + (+x.amount || 0), 0);
-    return { servicesTotal, travel, discount, total, gst, deposit, paid, depositPaid, balance: Math.max(0, total - paid) };
+    return { servicesTotal, travel, additionalCosts, discount, total, gst, deposit, paid, depositPaid, balance: Math.max(0, total - paid) };
   }
 
   /* ---------- guards ---------- */
@@ -132,7 +133,6 @@
     const t = totals(b);
     switch (b.stage) {
       case 'enquiry':
-        if (!b.enquiryReviewedAt) reasons.push({ text: 'Review the enquiry and save notes' });
         if (b.consultation?.provider !== 'crm' || b.consultation?.status !== 'confirmed') reasons.push({ text: 'Chanel must approve the phone consultation in the CRM' });
         break;
       case 'call':
@@ -145,7 +145,7 @@
         if (b.eventDate && dateClashes(b).length) reasons.push({ text: `You already have ${dateClashes(b).length} confirmed booking(s) that day`, soft: true });
         break;
       case 'deposit':
-        if (t.deposit > 0 && t.depositPaid < t.deposit) reasons.push({ text: `Record the ${money(t.deposit)} deposit`, soft: true });
+        if (t.deposit > 0 && t.depositPaid < t.deposit) reasons.push({ text: `Record the ${money(t.deposit)} deposit` });
         break;
       case 'booked':
         if (b.eventDate && b.eventDate > today()) reasons.push({ text: `The day hasn’t arrived yet (${fmtDate(b.eventDate)})`, soft: true });
@@ -154,9 +154,10 @@
         if (!DB.list('photos', p => p.bookingId === b.id).length) reasons.push({ text: 'No photos uploaded from the day yet', soft: true });
         break;
       case 'invoice':
-        if (t.balance > 0) reasons.push({ text: `${money(t.balance)} still owing on the final invoice`, soft: true });
+        if (t.balance > 0) reasons.push({ text: `${money(t.balance)} still owing on the final invoice` });
         break;
       case 'review':
+        if (!b.followUpSentAt) reasons.push({ text: 'Send and log the thank-you follow-up email' });
         if (!DB.find('reviews', r => r.bookingId === b.id)) reasons.push({ text: 'No review recorded yet', soft: true });
         break;
     }
@@ -220,13 +221,14 @@
         await upsertReminder(b, { kind: 'final_chase', title: `Chase final payment — ${name}`, dueAt: daysFromNow(+p.paymentTermsDays || 7), templateKey: 'final_reminder' });
         break;
       case 'review':
+        await upsertReminder(b, { kind: 'service_followup', title: `Thank ${name} and send receipt`, dueAt: daysFromNow(1), templateKey: 'service_followup' });
         await skipKinds(b, ['final_send', 'final_chase']);
         await refreshInvoices(b);
         await upsertReminder(b, { kind: 'review_request', title: `Ask ${name} for a review`, dueAt: daysFromNow(1), templateKey: 'review_request' });
         await upsertReminder(b, { kind: 'review_followup', title: `Review follow-up — ${name}`, dueAt: daysFromNow(6), templateKey: 'review_followup' });
         break;
       case 'complete':
-        await skipKinds(b, ['review_request', 'review_followup']);
+        await skipKinds(b, ['review_request', 'review_followup', 'service_followup']);
         break;
     }
   }
@@ -292,6 +294,7 @@
       items = [{ desc: `Booking deposit — ${b.eventType || 'makeup'} on ${fmtDate(b.eventDate)}`, qty: 1, price: t.deposit }];
     } else {
       items = (b.lines || []).map(l => ({ desc: l.name, qty: +l.qty || 1, price: +l.price || 0 }));
+      if (t.additionalCosts) items.push({ desc: b.additionalCostsReason || 'Agreed additional costs', qty: 1, price: t.additionalCosts });
       if (t.travel) items.push({ desc: 'Travel fee', qty: 1, price: t.travel });
       if (t.discount) items.push({ desc: 'Discount', qty: 1, price: -t.discount });
       if (t.depositPaid) items.push({ desc: 'Less deposit received', qty: 1, price: -t.depositPaid });
@@ -325,7 +328,9 @@
 
   /* ---------- actions used by the UI ---------- */
   async function createEnquiry(f, { source = 'Enquiry form', photos = [] } = {}) {
-    const email = (f.email || '').toLowerCase();
+    const requestedAt = f.consultAt ? new Date(f.consultAt + ':00+10:00') : null;
+    if (requestedAt && (!Number.isFinite(+requestedAt) || +requestedAt <= Date.now())) throw Error('Choose a future phone consultation time');
+    const email = (f.email || '').trim().toLowerCase();
     let client = email ? DB.find('clients', c => (c.email || '').toLowerCase() === email) : null;
     client = await DB.save('clients', {
       ...(client || {}),
@@ -349,6 +354,7 @@
       answers: { trial: f.trial || '', look: f.look || '', heardFrom: f.heardFrom || '', callPref: f.callPref || '', notes: f.notes || '', skinType: f.skinType || '', allergies: f.allergies || '' },
       stageChangedAt: new Date().toISOString()
     });
+    if (requestedAt) await scheduleCall(b, requestedAt.toISOString());
     await log(b, 'enquiry', `New enquiry via ${source}`);
     await upsertReminder(b, { kind: 'enquiry_review', title: `Review ${clientName(client)}’s enquiry`, dueAt: daysFromNow(0, '23:00') });
     for (const file of photos) await addPhoto(b, file, 'inspo', 'Inspiration from enquiry');
@@ -378,7 +384,6 @@
 
   async function approveConsultation(b) {
     b = fresh(b);
-    if (!b.enquiryReviewedAt) throw new Error('Review the enquiry first');
     if (!b.callAt) throw new Error('Schedule the phone consultation first');
     return consultationAction(b, 'approve');
   }
@@ -386,7 +391,7 @@
   async function logCall(b, notes, updates = {}) {
     const cur = fresh(b);
     if (!notes?.trim()) throw new Error('Add call notes');
-    if (['enquiry', 'call'].includes(cur.stage) && (!cur.enquiryReviewedAt || (cur.consultation?.provider !== 'crm' || cur.consultation?.status !== 'confirmed'))) throw new Error('Review the enquiry and approve the phone consultation first');
+    if (['enquiry', 'call'].includes(cur.stage) && (cur.consultation?.provider !== 'crm' || cur.consultation?.status !== 'confirmed')) throw new Error('Approve the phone consultation first');
     if (['enquiry', 'call'].includes(cur.stage) && new Date(cur.callAt) > new Date()) throw new Error('The scheduled call has not started yet');
     const patch = { callNotes: [cur.callNotes, notes].filter(Boolean).join('\n\n'), callLoggedAt: new Date().toISOString() };
     for (const k of ['eventDate', 'readyBy', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
@@ -400,6 +405,12 @@
 
   async function saveBooking(b, patch, what = 'Details updated') {
     const before = fresh(b);
+    if (patch.additionalCosts !== undefined) {
+      if (!before.callLoggedAt) throw Error('Complete the phone consultation before adding costs');
+      if (!Number.isFinite(+patch.additionalCosts) || +patch.additionalCosts < 0) throw Error('Enter a valid additional cost');
+      if (+patch.additionalCosts > 0 && !String(patch.additionalCostsReason || '').trim()) throw Error('Describe the agreed additional cost');
+      if (+patch.additionalCosts !== (+before.additionalCosts || 0) && DB.find('invoices', i => i.bookingId === before.id && i.type === 'final' && (i.stripeInvoiceId || i.status === 'paid'))) throw Error('Reconcile the issued final invoice in Stripe before changing its costs');
+    }
     if(DB.setting('connectorPreferences',{}).enabled && before.calendarSync){
       const calendarStart = before.calendarStart && new Date(before.calendarStart).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
       const calendarEnd = before.calendarEnd && new Date(before.calendarEnd).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
@@ -486,14 +497,23 @@
   }
 
   async function addPhoto(b, file, kind = 'day', caption = '') {
-    const dataUrl = await UI.resizeImage(file);
-    const meta = await DB.save('photos', { bookingId: b.id, clientId: b.clientId, kind, caption, fileName: file.name || '', takenAt: today() });
-    await DB.putBlob(meta.id, dataUrl);
+    const video = ['video/mp4', 'video/webm', 'video/quicktime'].includes(file.type);
+    if (!video && !file.type.startsWith('image/')) throw Error('Choose an image or MP4, WebM or MOV video');
+    if (video && file.size > 6 * 1024 * 1024) throw Error('Choose a video smaller than 6 MB');
+    const id = DB.uid(), storagePath = video ? id + ({'video/mp4':'.mp4','video/webm':'.webm','video/quicktime':'.mov'}[file.type]) : id + '.jpg';
+    if (video) {
+      const {error} = await DB.client.storage.from(window.CRM_CONFIG.photoBucket).upload(storagePath, file, {contentType:file.type});
+      if (error) throw Error('Uploading video: ' + error.message);
+    } else await DB.putBlob(id, await UI.resizeImage(file));
+    let meta;
+    try { meta = await DB.save('photos', { id, bookingId: b.id, clientId: b.clientId, kind, caption, storagePath, mediaType: video ? 'video' : 'image', fileName: file.name || '', takenAt: today() }); }
+    catch (e) { await DB.client.storage.from(window.CRM_CONFIG.photoBucket).remove([storagePath]); throw e; }
     return meta;
   }
   async function deletePhoto(id) { await DB.removeBlob(id); await DB.remove('photos', id); }
 
   async function logMessage(b, templateKey, subject, channel) {
+    if (templateKey === 'service_followup') await DB.save('bookings', {...fresh(b), followUpSentAt: new Date().toISOString()});
     const t = TEMPLATES[templateKey];
     await log(b, 'message', `Sent "${t ? t.label : subject}" by ${channel || 'message'}`);
     // sending a template satisfies any matching pending reminder
@@ -504,14 +524,16 @@
   /* ---------- message templates ---------- */
   function vars(b) {
     const c = clientOf(b); const p = profile(); const t = totals(b);
-    const pay = [p.bankAccountName && `Account name: ${p.bankAccountName}`, p.bsb && `BSB: ${p.bsb}`, p.accountNumber && `Account: ${p.accountNumber}`, p.payId && `PayID: ${p.payId}`].filter(Boolean).join('\n') || '[add your payment details in Profile]';
+    const invoice = DB.find('invoices', i => i.bookingId === b.id && i.type === (idx(b.stage) < idx('booked') ? 'deposit' : 'final'));
+    const stripeLink = invoice?.stripeUrl && /^https:\/\/invoice\.stripe\.com\//.test(invoice.stripeUrl) ? invoice.stripeUrl : '';
+    const pay = stripeLink || [p.bankAccountName && `Account name: ${p.bankAccountName}`, p.bsb && `BSB: ${p.bsb}`, p.accountNumber && `Account: ${p.accountNumber}`, p.payId && `PayID: ${p.payId}`].filter(Boolean).join('\n') || '[add your payment details in Profile]';
     const lines = (b.lines || []).map(l => `• ${l.name}${+l.qty > 1 ? ' × ' + l.qty : ''} — ${money(l.qty * l.price)}`).join('\n') || '• [add services to the quote]';
     return {
       first: c.firstName || 'there', artist: (p.artistName || '').split(' ')[0] || 'Chanel', business: p.businessName,
       eventType: (b.eventType || 'event').toLowerCase(), date: b.eventDate ? fmtDate(b.eventDate) : '[date TBC]',
       readyBy: b.readyBy ? fmtTime(b.readyBy) : '[time TBC]', location: b.location || '[location TBC]',
       call: b.callAt ? fmtDateTime(b.callAt) : '[call time]', lines, total: money(t.total), deposit: money(t.deposit),
-      balance: money(t.balance), pay, policy: p.cancellationPolicy, reviewLink: p.reviewLink || '[add your review link in Profile]',
+      balance: money(t.balance), paidInFull: t.balance <= 0, stripeLink, pay, policy: p.cancellationPolicy, reviewLink: p.reviewLink || '[add your review link in Profile]',
       bookingLink: p.bookingLink, instagram: p.instagram, phone: p.phone
     };
   }
@@ -537,6 +559,8 @@
       `Hi ${v.first}! Can't wait for tomorrow. I'll arrive in time for you to be ready by ${v.readyBy} at ${v.location}. Clean, moisturised skin please and wear a button-up top. — ${v.artist}` }) },
     remind_generic: { label: 'Event reminder', stage: 'booked', build: v => ({ subject: `Reminder: ${v.date}`, body:
       `Hi ${v.first},\n\nJust a reminder about your makeup booking on ${v.date}, ready by ${v.readyBy} at ${v.location}.` + sign(v) }) },
+    service_followup: { label: 'Thank you + payment / receipt', stage: 'review', build: v => ({ subject: `Thank you for choosing ${v.business}`, body:
+      `Hi ${v.first},\n\nThank you for having me on ${v.date}! I hope you enjoyed your makeup experience.\n\n${v.paidInFull ? 'Your balance is paid in full. ' + (v.stripeLink ? 'View your paid invoice / receipt in Stripe:\n' + v.stripeLink : 'Thank you for your payment. Please reply if you need a receipt.') : 'Your remaining balance is ' + v.balance + ':\n' + v.pay}\n\nI would love to hear your feedback. You can reply to this email or leave a review:\n${v.reviewLink}` + sign(v) }) },
     final_invoice: { label: 'Thank you + final invoice', stage: 'invoice', build: v => ({ subject: 'Thank you! Your final invoice', body:
       `Hi ${v.first},\n\nThank you so much for having me on ${v.date} — you looked incredible!\n\nYour remaining balance is ${v.balance}:\n${v.pay}\n\nI'll share a few photos from the day soon.` + sign(v) }) },
     final_reminder: { label: 'Payment reminder', stage: 'invoice', build: v => ({ subject: 'Friendly payment reminder', body:

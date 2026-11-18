@@ -8,3 +8,7 @@ verify_jwt = false
 
 [functions.crm-connectors]
 verify_jwt = false
+
+# Authenticated staff requests or verified Stripe webhook signatures are checked in the function.
+[functions.crm-stripe]
+verify_jwt = false

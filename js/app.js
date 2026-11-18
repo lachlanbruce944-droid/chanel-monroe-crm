@@ -189,14 +189,14 @@
 
   /* ================= BOOKING DETAIL ================= */
   const STAGE_ACTIONS = {
-    enquiry: [['reviewEnquiry', '', 'Review enquiry & notes', ''], ['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary'], ['retryConsultationEmail', '', 'Retry consultation email', '']],
-    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['retryConsultationEmail', '', 'Retry consultation email', ''], ['reviewEnquiry', '', 'Review notes', 'ghost'], ['logCall', '', 'Complete call & save details', 'primary']],
+    enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary'], ['retryConsultationEmail', '', 'Retry consultation email', '']],
+    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['retryConsultationEmail', '', 'Retry consultation email', ''], ['logCall', '', 'Complete call & save details', 'primary']],
     updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Send quote & deposit request', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
-    day: [['photo', '', 'Upload photos', ''], ['advance', '', 'Finish up · create final invoice', 'primary']],
+    day: [['photo', '', 'Upload photos / videos', ''], ['addReview', '', 'Record verbal / written feedback', ''], ['advance', '', 'Finish up · create final invoice', 'primary']],
     invoice: [['tpl', 'final_invoice', 'Send final invoice', ''], ['payment', 'final', 'Record payment', 'primary']],
-    review: [['tpl', 'review_request', 'Ask for a review', ''], ['addReview', '', 'Record review', 'primary']],
+    review: [['tpl', 'service_followup', 'Send thank-you & receipt', 'primary'], ['tpl', 'review_request', 'Ask for a review', ''], ['addReview', '', 'Record review', 'primary']],
     complete: []
   };
 
@@ -312,10 +312,11 @@
             </div>
           </section>
 
+          ${b.callLoggedAt ? `<section class="card"><h2>Service notes & additional costs</h2><form data-form="serviceNotes" data-id="${b.id}" class="form-grid"><label class="span-2">Additional notes<textarea name="serviceNotes" rows="4">${esc(b.serviceNotes || '')}</textarea></label><label>Agreed additional costs<input name="additionalCosts" type="number" min="0" step="0.01" value="${esc(b.additionalCosts || 0)}"></label><label>Cost description<input name="additionalCostsReason" value="${esc(b.additionalCostsReason || '')}"></label><div class="span-2"><button class="btn sm">Save service notes & costs</button></div></form></section>` : ''}
           <section class="card" id="photos">
-            <div class="card-head"><h2>Photos</h2><label class="btn sm">${icon('camera')} Upload<input type="file" accept="image/*" multiple hidden data-change="photos" data-id="${b.id}"></label></div>
-            <div class="row gap kind-pick"><span class="muted">Upload as:</span>${['inspo', 'before', 'after', 'day'].map(k => `<label class="chip"><input type="radio" name="photoKind" value="${k}" ${k === (b.stage === 'day' || si > W.idx('day') ? 'day' : 'inspo') ? 'checked' : ''}>${k === 'inspo' ? 'Inspiration' : k[0].toUpperCase() + k.slice(1)}</label>`).join('')}</div>
-            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}"><img data-photo="${p.id}" alt=""><span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet. Add inspiration pics now and before/after shots on the day.')}
+            <div class="card-head"><h2>Photos & videos</h2><label class="btn sm">${icon('camera')} Upload<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden data-change="photos" data-id="${b.id}"></label></div>
+            <div class="row gap kind-pick"><span class="muted">Upload as (videos up to 6 MB):</span>${['inspo', 'before', 'after', 'day'].map(k => `<label class="chip"><input type="radio" name="photoKind" value="${k}" ${k === (b.stage === 'day' || si > W.idx('day') ? 'day' : 'inspo') ? 'checked' : ''}>${k === 'inspo' ? 'Inspiration' : k[0].toUpperCase() + k.slice(1)}</label>`).join('')}</div>
+            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}">${p.mediaType === 'video' ? '<span aria-label="Video">▶ Video</span>' : `<img data-photo="${p.id}" alt="">`}<span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet. Add inspiration pics now and before/after shots on the day.')}
           </section>
         </div>
 
@@ -351,7 +352,7 @@
 
           <section class="card">
             <div class="card-head"><h2>Activity</h2></div>
-            <form data-form="note" data-id="${b.id}" class="row gap"><input name="text" placeholder="Add a note…" required><button class="btn sm">Add</button></form>
+            ${b.callLoggedAt ? `<form data-form="note" data-id="${b.id}" class="row gap"><input name="text" placeholder="Add a note…" required><button class="btn sm">Add</button></form>` : '<p class="small muted">Add staff notes after the phone consultation.</p>'}
             <ul class="timeline">${acts.slice(0, 40).map(a => `<li class="t-${a.type}"><p>${esc(a.text)}</p><small>${fmtDateTime(a.at)}</small></li>`).join('')}</ul>
           </section>
         </div>
@@ -424,7 +425,7 @@
               <div class="span-2 row end"><button class="btn sm">Save client</button></div>
             </form></section>
           <section class="card"><div class="card-head"><h2>Photos</h2></div>
-            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}"><img data-photo="${p.id}" alt=""><span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet.')}</section>
+            ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}">${p.mediaType === 'video' ? '<span aria-label="Video">▶ Video</span>' : `<img data-photo="${p.id}" alt="">`}<span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet.')}</section>
         </div>
         <div class="detail-side">
           <section class="card"><div class="card-head"><h2>Bookings</h2></div>
@@ -446,7 +447,7 @@
     DB.list('bookings', b => b.status !== 'lost').forEach(b => {
       const c = W.clientOf(b);
       if (b.eventDate) push(b.eventDate, { kind: 'event', cls: `s-${b.stage}`, tentative: W.idx(b.stage) < W.idx('booked'), text: W.clientName(c), sub: `${b.eventType || 'Event'}${b.readyBy ? ' · ready ' + fmtTime(b.readyBy) : ''}`, href: `#/booking/${b.id}`, time: b.readyBy || '' });
-      if (b.callAt && W.idx(b.stage) <= W.idx('call')) push(Connectors.brisbaneInput(b.callAt).slice(0,10), { kind: 'call', cls: 'call', text: `${b.consultation?.status === 'confirmed' && b.consultation?.provider === 'crm' ? 'Confirmed call' : 'Pending call'} ${c.firstName || ''}`, sub: fmtTime(Connectors.brisbaneInput(b.callAt).slice(11)) + ' AEST', href: `#/booking/${b.id}`, time: Connectors.brisbaneInput(b.callAt).slice(11) });
+      if (b.callAt && !b.callLoggedAt) push(Connectors.brisbaneInput(b.callAt).slice(0,10), { kind: 'call', cls: b.consultation?.status === 'confirmed' ? 'call' : 'call tent', text: `${b.consultation?.status === 'confirmed' && b.consultation?.provider === 'crm' ? 'Confirmed call' : 'Pending approval'} ${W.clientName(c)}`, sub: fmtTime(Connectors.brisbaneInput(b.callAt).slice(11)) + ' AEST', href: `#/booking/${b.id}`, time: Connectors.brisbaneInput(b.callAt).slice(11) });
     });
     DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day')).forEach(r => push(ymd(new Date(r.dueAt)), { kind: 'rem', cls: 'rem', text: r.title, sub: 'Reminder', href: r.bookingId ? `#/booking/${r.bookingId}` : '#/', time: '' }));
     const cells = [];
@@ -467,7 +468,7 @@
           <div class="cal-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
           <div class="cal-grid">${cells.join('')}</div>
         </section>
-        <div class="legend"><span><b class="s-booked"></b>Booked</span><span><b class="s-enquiry tent"></b>Enquiry (not secured)</span><span><b class="call"></b>Phone call</span><span><b class="rem"></b>Reminder</span></div>
+        <div class="legend"><span><b class="s-booked"></b>Booked</span><span><b class="s-enquiry tent"></b>Enquiry (not secured)</span><span><b class="call"></b>Approved phone call</span><span><b class="call tent"></b>Phone call pending approval</span><span><b class="rem"></b>Reminder</span></div>
         <section class="card">
           <div class="card-head"><h2>${fmtDate(state.calSelected)}</h2><a class="btn sm" href="#/new?date=${state.calSelected}" data-act="newOnDate" data-day="${state.calSelected}">${icon('plus')} Booking</a></div>
           ${sel.length ? `<ul class="list">${sel.map(it => `<li><a class="list-row" href="${it.href}"><span class="dot ${it.cls}"></span><div class="grow"><strong>${esc(it.text)}</strong><small>${esc(it.sub)}</small></div></a></li>`).join('')}</ul>` : empty('Nothing on this day — it’s free.')}
@@ -700,8 +701,8 @@
       </div></fieldset>
       <fieldset><legend>Last few questions</legend><div class="form-grid">
         <label>How did you find ${esc(W.profile().artistName.split(' ')[0])}?<select name="heardFrom"><option value="">—</option>${['Instagram', 'TikTok', 'Google', 'Friend / referral', 'Wedding vendor', 'Facebook', 'Other'].map(o => `<option>${o}</option>`).join('')}</select></label>
-        <label>Best time for a quick call?<input name="callPref" placeholder="e.g. weekday evenings"></label>
-        <label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>
+        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" name="consultAt" required></label><p class="small muted span-2">Pending Chanel’s approval. Normally at least three days before makeup; confirmation will be emailed once approved.</p>
+        ${internal ? '' : '<label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>'}
         ${internal ? '' : '<label class="span-2 check"><input type="checkbox" name="consent" required> I’m happy to be contacted about my enquiry</label>'}
       </div></fieldset>`;
   }
@@ -857,7 +858,6 @@
     },
     async approveConsultation(d) {
       const b = DB.get('bookings', d.id);
-      if (!b.enquiryReviewedAt) return toast('Review the enquiry first');
       if (!b.callAt) return toast('Schedule the phone consultation first');
       if (!await confirmBox(`Approve the client’s requested call for ${fmtDateTime(b.callAt)} Brisbane time? This sends the phone consultation booking email. No client confirmation is required. The makeup booking still requires a quote and deposit.`, 'Approve & email')) return;
       await W.approveConsultation(b);
@@ -930,9 +930,9 @@
       const b = DB.get('bookings', d.id);
       await modal({ title: 'Record review', submitLabel: 'Save review',
         body: `<div class="rating">${[5, 4, 3, 2, 1].map(n => `<input type="radio" name="rating" id="r${n}" value="${n}" ${n === 5 ? 'checked' : ''}><label for="r${n}">★</label>`).join('')}</div>
-          <label>Review text<textarea name="text" rows="4" placeholder="Paste what they wrote"></textarea></label>
-          <label>Where<select name="source">${['Google', 'Instagram', 'Facebook', 'Direct message', 'Website'].map(s => `<option>${s}</option>`).join('')}</select></label>
-          <label class="check"><input type="checkbox" name="consent" checked> OK to share on the website</label>`,
+          <label>Review text<textarea name="text" rows="4" placeholder="Record what they said or paste their written review"></textarea></label>
+          <label>Where<select name="source">${['Verbal', 'Written', 'Google', 'Instagram', 'Facebook', 'Direct message', 'Website'].map(s => `<option>${s}</option>`).join('')}</select></label>
+          <label class="check"><input type="checkbox" name="consent"> Client gave permission to share on the website</label>`,
         async onSubmit(f) { const r = await W.addReview(b, f); toast(r.advancedTo ? 'Review saved — booking complete!' : 'Review saved'); } });
       rerender();
     },
@@ -940,7 +940,7 @@
     async viewPhoto(d) {
       const p = DB.get('photos', d.id); const src = await DB.getBlob(d.id);
       const res = await modal({ title: `${p.kind[0].toUpperCase() + p.kind.slice(1)} photo`, wide: true, submitLabel: 'Delete photo', danger: true, cancelLabel: 'Close',
-        body: `<img class="photo-full" src="${src}" alt=""><p class="small muted">${esc(p.caption || '')} ${fmtDate(p.createdAt)}</p><a class="btn sm" download="${esc((p.fileName || 'photo').replace(/\.\w+$/, ''))}.jpg" href="${src}">Download</a>`,
+        body: `${p.mediaType === 'video' ? `<video class="photo-full" src="${esc(src)}" controls playsinline></video>` : `<img class="photo-full" src="${esc(src)}" alt="">`}<p class="small muted">${esc(p.caption || '')} ${fmtDate(p.createdAt)}</p><a class="btn sm" download="${esc(p.fileName || 'media')}" href="${src}">Download</a>`,
         onSubmit: () => 'delete' });
       if (res === 'delete' && await confirmBox('Delete this photo?', 'Delete', true)) { await W.deletePhoto(d.id); blobCache.delete(d.id); rerender(); }
     },
@@ -1094,6 +1094,11 @@
       window.scrollTo(0, 0);
     },
     async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('CRM calendar time block saved');rerender();},
+    async serviceNotes(f, form) {
+      const b = DB.get('bookings', form.dataset.id);
+      await W.saveBooking(b, {serviceNotes:f.serviceNotes, additionalCosts:+f.additionalCosts, additionalCostsReason:f.additionalCostsReason}, 'Service notes and agreed additional costs updated');
+      toast('Saved'); rerender();
+    },
     async details(f, form) {
       const b = DB.get('bookings', form.dataset.id);
       await W.saveBooking(b, { eventType: f.eventType, eventDate: f.eventDate, readyBy: f.readyBy, startTime: f.startTime, location: f.location,
@@ -1105,7 +1110,7 @@
       await W.saveBooking(b, { lines: [...(b.lines || []), { serviceId: s.id, name: s.name, qty: +f.qty || 1, price: s.price }] }, `Added ${s.name} to quote`);
       rerender();
     },
-    async note(f, form) { const b = DB.get('bookings', form.dataset.id); await W.log(b, 'note', f.text); rerender(); },
+    async note(f, form) { const b = DB.get('bookings', form.dataset.id); if (!b.callLoggedAt) throw Error('Add notes after the phone consultation'); await W.log(b, 'note', f.text); rerender(); },
     async client(f, form) {
       const c = DB.get('clients', form.dataset.id);
       await DB.save('clients', { ...c, ...f }); toast('Client saved'); rerender();
@@ -1202,6 +1207,7 @@
       category: 'crm-form', category_name: f.eventType, look_name: svc.map(s => s.name).join(', ') || null,
       event_date: f.eventDate || null, time: f.readyBy || null, time_type: 'ready_by', location: f.location,
       quantity: String(f.partySize || 1), bridal_trial: f.trial || null, skin_type: f.skinType || null, allergies: f.allergies || null,
+      consult_requested_at: f.consultAt ? new Date(f.consultAt + ':00+10:00').toISOString() : null,
       notes, extra_services: svc.map(s => s.name), estimate_total: svc.reduce((t, s) => t + +s.price, 0) || null, estimate_is_from: true,
       consent: !!f.consent, status: 'new', source: 'crm-form'
     });
