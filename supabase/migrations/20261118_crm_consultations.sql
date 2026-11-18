@@ -109,3 +109,7 @@ language sql security definer set search_path=public as $$
 $$;
 revoke all on function public.crm_consult_email_status(uuid,uuid,text) from public,anon,authenticated;
 grant execute on function public.crm_consult_email_status(uuid,uuid,text) to service_role;
+
+-- Trigger-only functions are not public RPC entry points.
+revoke all on function public.crm_capture_consult_request() from public, anon, authenticated;
+revoke all on function public.crm_guard_consult_calendar() from public, anon, authenticated;
