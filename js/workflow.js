@@ -17,7 +17,7 @@
   const { ymd, today, parseYmd, addDays, fmtDate, fmtTime, fmtDateTime, money } = UI;
 
   const STAGES = [
-    { key: 'enquiry',  label: 'Enquiry',            short: 'Enquiry', hint: 'Review the enquiry, save your notes and approve the requested phone consultation.' },
+    { key: 'enquiry',  label: 'Enquiry',            short: 'Enquiry', hint: 'Review the enquiry, save your notes and schedule and approve the requested phone consultation in the CRM.' },
     { key: 'call',     label: 'Phone call',         short: 'Call',    hint: 'Complete the approved phone consultation and save the details before generating a quote.' },
     { key: 'updates',  label: 'Updates & quote',    short: 'Quote',   hint: 'Lock in the details and services, then send the quote and deposit request.' },
     { key: 'deposit',  label: 'Deposit',            short: 'Deposit', hint: 'Deposit invoice is out. Waiting on payment to secure the date.' },
@@ -36,7 +36,7 @@
   const DEFAULT_PROFILE = {
     businessName: 'Chanel Monroe Makeup', artistName: 'Chanel Monroe', tagline: 'Bridal & event makeup artist',
     email: 'makeup@chanelmonroe.net', phone: '', abn: '', instagram: '@chanelmonroemakeup', website: 'https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/',
-    bookingLink: 'https://cal.com/chanelmonroe/enquiry', serviceArea: 'Gold Coast (travel included within 20 km)', bio: '', avatar: '',
+    bookingLink: 'https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/enquire.html', serviceArea: 'Gold Coast (travel included within 20 km)', bio: '', avatar: '',
     depositPercent: 30, gstRegistered: false, paymentTermsDays: 7, depositDueDays: 3,
     bankAccountName: '', bsb: '', accountNumber: '', payId: '',
     cancellationPolicy: 'Your deposit secures your date and is non-refundable. Date changes are subject to availability.',
@@ -133,7 +133,7 @@
     switch (b.stage) {
       case 'enquiry':
         if (!b.enquiryReviewedAt) reasons.push({ text: 'Review the enquiry and save notes' });
-        if (b.consultation?.status !== 'confirmed') reasons.push({ text: 'Approve the phone consultation in Cal.com' });
+        if (b.consultation?.provider !== 'crm' || b.consultation?.status !== 'confirmed') reasons.push({ text: 'Chanel must approve the phone consultation in the CRM' });
         break;
       case 'call':
         if (!b.callLoggedAt || !b.callNotes?.trim()) reasons.push({ text: 'Complete the call and save consultation notes' });
@@ -171,6 +171,7 @@
   /* ---------- stage moves ---------- */
   async function setStage(b, key, note = '') {
     const prev = b.stage;
+    if(key === 'booked' && (!b.callLoggedAt || b.consultation?.provider !== 'crm' || b.consultation?.status !== 'confirmed')) throw new Error('Complete the CRM-approved phone consultation before confirming the makeup appointment');
     if(key === 'booked' && window.Connectors) await window.Connectors.ensureBlock(fresh(b));
     b = await DB.save('bookings', { ...fresh(b), stage: key, stageChangedAt: new Date().toISOString() });
     await log(b, 'stage', `Moved to ${stage(key).label}${note ? ' — ' + note : ''}`, { from: prev, to: key });
@@ -205,6 +206,7 @@
         await upsertReminder(b, { kind: 'deposit_chase', title: `Chase deposit — ${name}`, dueAt: daysFromNow(+p.depositDueDays || 3), templateKey: 'deposit_reminder' });
         break;
       case 'booked':
+        if(window.Connectors && b.calendarStart && b.calendarEnd) await window.Connectors.request('sync-booking',{bookingId:b.id});
         await skipKinds(b, ['deposit_chase', 'reply', 'call']);
         await refreshInvoices(b);
         await generateEventReminders(b);
@@ -353,14 +355,18 @@
     return fresh(b);
   }
 
-  async function scheduleCall(b, iso, note = '') {
-    b = await DB.save('bookings', { ...fresh(b), callAt: iso });
-    await log(b, 'call', `Phone call scheduled for ${fmtDateTime(iso)}${note ? ' — ' + note : ''}`);
-    await skipKinds(b, ['reply']);
-    await upsertReminder(b, { kind: 'call', title: `Call ${clientName(clientOf(b))}`, dueAt: iso, templateKey: '' });
-    if (b.stage === 'enquiry') b = await setStage(b, 'call');
+  async function consultationAction(b, action, details = {}) {
+    const { data, error } = await DB.client.functions.invoke('consultation-manage', { body: { bookingId: fresh(b).id, action, ...details } });
+    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Consultation update failed');
+    await DB.refresh();
+    if (data.calendarError) UI.toast('Appointment saved; Apple Calendar needs a retry. ' + data.calendarError, 'error');
+    if (data.emailError) throw new Error('Appointment saved, but email was not sent. Use Retry consultation email. ' + data.emailError);
     return fresh(b);
   }
+  async function scheduleCall(b, iso, exceptionReason = '') {
+    return consultationAction(b, 'schedule', { start: iso, exceptionReason });
+  }
+  async function retryConsultationEmail(b) { return consultationAction(b, 'retry-email'); }
 
   async function reviewEnquiry(b, notes) {
     if (!notes?.trim()) throw new Error('Add review notes');
@@ -373,17 +379,15 @@
   async function approveConsultation(b) {
     b = fresh(b);
     if (!b.enquiryReviewedAt) throw new Error('Review the enquiry first');
-    if (!b.consultation?.uid) throw new Error('The client’s Cal.com request has not synced yet');
-    const { data, error } = await DB.client.functions.invoke('consultation-approve', { body: { bookingId: b.id } });
-    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Approval failed; the request remains pending');
-    await DB.refresh();
-    return fresh(b);
+    if (!b.callAt) throw new Error('Schedule the phone consultation first');
+    return consultationAction(b, 'approve');
   }
 
   async function logCall(b, notes, updates = {}) {
     const cur = fresh(b);
     if (!notes?.trim()) throw new Error('Add call notes');
-    if (['enquiry', 'call'].includes(cur.stage) && (!cur.enquiryReviewedAt || cur.consultation?.status !== 'confirmed')) throw new Error('Review the enquiry and approve the phone consultation first');
+    if (['enquiry', 'call'].includes(cur.stage) && (!cur.enquiryReviewedAt || (cur.consultation?.provider !== 'crm' || cur.consultation?.status !== 'confirmed'))) throw new Error('Review the enquiry and approve the phone consultation first');
+    if (['enquiry', 'call'].includes(cur.stage) && new Date(cur.callAt) > new Date()) throw new Error('The scheduled call has not started yet');
     const patch = { callNotes: [cur.callNotes, notes].filter(Boolean).join('\n\n'), callLoggedAt: new Date().toISOString() };
     for (const k of ['eventDate', 'readyBy', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
     b = await DB.save('bookings', { ...cur, ...patch });
@@ -400,7 +404,7 @@
       const calendarStart = before.calendarStart && new Date(before.calendarStart).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
       const calendarEnd = before.calendarEnd && new Date(before.calendarEnd).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
       if(patch.eventDate && patch.eventDate !== before.eventDate && ![calendarStart,calendarEnd].includes(patch.eventDate))
-        throw new Error('Move the Google Calendar time block to the new event date before saving details.');
+        throw new Error('Move the CRM calendar time block to the new event date before saving details.');
     }
     b = await DB.save('bookings', { ...before, ...patch });
     await log(b, 'edit', what);
@@ -446,7 +450,7 @@
   }
 
   async function markLost(b, reason) {
-    if(window.Connectors && fresh(b)?.calendarSync) await window.Connectors.removeBlock(fresh(b));
+    if(window.Connectors && (fresh(b)?.calendarSync || fresh(b)?.calendarStart || fresh(b)?.callAt)) await window.Connectors.removeBlock(fresh(b));
     b = await DB.save('bookings', { ...fresh(b), status: 'lost', lostReason: reason || '' });
     await log(b, 'status', `Marked lost${reason ? ': ' + reason : ''}`);
     for (const r of DB.list('reminders', r => r.bookingId === b.id && r.status === 'pending'))
@@ -459,7 +463,7 @@
     return b;
   }
   async function deleteBooking(b) {
-    if(window.Connectors && fresh(b)?.calendarSync) await window.Connectors.removeBlock(fresh(b));
+    if(window.Connectors && (fresh(b)?.calendarSync || fresh(b)?.calendarStart || fresh(b)?.callAt)) await window.Connectors.removeBlock(fresh(b));
     for (const s of ['payments', 'invoices', 'reminders', 'reviews', 'activity'])
       for (const r of DB.list(s, x => x.bookingId === b.id)) await DB.remove(s, r.id);
     for (const p of DB.list('photos', x => x.bookingId === b.id)) { await DB.removeBlob(p.id); await DB.remove('photos', p.id); }
@@ -547,7 +551,7 @@
   window.Workflow = {
     STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
-    createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
+    createEnquiry, scheduleCall, retryConsultationEmail, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
     generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };

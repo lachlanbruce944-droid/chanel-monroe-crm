@@ -17,7 +17,7 @@
     const ap = h >= 12 ? 'pm' : 'am'; const hh = ((h + 11) % 12) + 1;
     return `${hh}${m ? ':' + pad(m) : ''}${ap}`;
   };
-  const fmtDateTime = iso => iso ? new Date(iso).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
+  const fmtDateTime = iso => iso ? new Date(iso).toLocaleString('en-AU', { timeZone:'Australia/Brisbane', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
   const daysUntil = s => s ? Math.round((parseYmd(s) - parseYmd(today())) / 86400000) : null;
   const toLocalInput = iso => { if (!iso) return ''; const d = new Date(iso); return `${ymd(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const relDays = s => {

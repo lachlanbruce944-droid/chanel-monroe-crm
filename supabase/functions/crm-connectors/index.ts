@@ -1,122 +1,80 @@
-// Cal.com keeps provider OAuth credentials. This service uses CAL_API_KEY only on the server.
-const SB = Deno.env.get('SUPABASE_URL')!;
-const KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const CAL_KEY = Deno.env.get('CAL_API_KEY') || '';
-const CORS = {'Access-Control-Allow-Origin':'https://lachlanbruce944-droid.github.io','Access-Control-Allow-Headers':'content-type, authorization, apikey','Access-Control-Allow-Methods':'POST, OPTIONS'};
-class Fault extends Error {status:number;constructor(message:string,status=400){super(message);this.status=status}}
-const reply=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{...CORS,'Content-Type':'application/json','Cache-Control':'no-store'}});
-async function db(path:string,init:RequestInit={}){
- const r=await fetch(`${SB}/rest/v1/${path}`,{...init,headers:{apikey:KEY,Authorization:`Bearer ${KEY}`,'Content-Type':'application/json',Prefer:'return=representation',...(init.headers||{})},signal:AbortSignal.timeout(10000)});
- if(!r.ok)throw new Fault('Studio database unavailable',503);return r.status===204?null:r.json();
+// Apple iCloud CalDAV connector. Credentials never leave the server.
+const SB=Deno.env.get('SUPABASE_URL')!,KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const CORS={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info','Access-Control-Allow-Methods':'POST,OPTIONS'};
+const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{...CORS,'Content-Type':'application/json'}});
+const xml=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!));
+export const stamp=(iso:string)=>new Date(iso).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
+const decode=(s:string)=>s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16))).replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(+n)).replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+export function dates(data:string){
+ if(!data.includes('BEGIN:VEVENT'))throw Error('Apple returned unreadable calendar event data');
+ const unfolded=data.replace(/\r?\n[ \t]/g,'');
+ if(/(?:^|\n)(RRULE|RDATE|EXDATE)[;:]/.test(unfolded))throw Error('Apple returned an unexpanded recurring appointment. Review this time in Apple Calendar');
+ const result=[];
+ for(const match of unfolded.matchAll(/BEGIN:VEVENT\r?\n([\s\S]*?)END:VEVENT/g)){
+  const e=match[1];if(/(?:^|\n)(STATUS:CANCELLED|TRANSP:TRANSPARENT)\r?\n/.test(e))continue;
+  const get=(name:string)=>{const m=e.match(new RegExp('(?:^|\\n)'+name+'([^:]*):([^\\r\\n]+)'));if(!m)return null;
+   if(m[1].includes('VALUE=DATE')||!m[2].includes('T'))return {allDay:m[2]};
+   if(!/^\d{8}T\d{6}Z$/.test(m[2]))throw Error('Apple appointment timezone could not be verified');
+   return {iso:m[2].replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/,'$1-$2-$3T$4:$5:$6Z')};};
+  const start=get('DTSTART'),end=get('DTEND');if(!start||!end)throw Error('Apple appointment duration could not be verified');
+  if(start.iso && (!Number.isFinite(+new Date(start.iso)) || !end.iso || !Number.isFinite(+new Date(end.iso)) || +new Date(end.iso)<=+new Date(start.iso)))throw Error('Apple appointment duration could not be verified');
+  result.push({uid:e.match(/(?:^|\n)UID:([^\r\n]+)/)?.[1],start,end});
+ }
+ return result;
 }
-async function cal(path:string,init:RequestInit={}){
- if(!CAL_KEY)throw new Fault('Connect your Cal.com account first',409);
- const r=await fetch('https://api.cal.com/v2/'+path,{...init,headers:{Authorization:`Bearer ${CAL_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000)});
- if(!r.ok)throw new Fault('Cal.com could not complete this request. Check the connection and try again.',r.status===404?404:502);
- return r.status===204?null:r.json();
+async function db(path:string,init:RequestInit={}){const r=await fetch(`${SB}/rest/v1/${path}`,{...init,headers:{apikey:KEY,Authorization:`Bearer ${KEY}`,'Content-Type':'application/json',...init.headers},signal:AbortSignal.timeout(12000)});if(!r.ok)throw Error('CRM calendar data unavailable');return r.status===204?null:r.json();}
+function config(){
+ const username=Deno.env.get('APPLE_ID'),password=Deno.env.get('APPLE_APP_SPECIFIC_PASSWORD'),target=Deno.env.get('APPLE_CALDAV_URL');
+ if(!username||!password||!target)return null;
+ const url=new URL(target);if(url.protocol!=='https:'||!(url.hostname==='caldav.icloud.com'||/^p\d+-caldav\.icloud\.com$/.test(url.hostname))||url.username||url.password||url.search||url.hash||!url.pathname.endsWith('/'))throw Error('Configure a private iCloud CalDAV calendar URL ending in /');
+ return {url:url.href,authorization:'Basic '+btoa(username+':'+password)};
 }
-export function googleCalendars(data:any){
- return (data?.connectedCalendars||[]).filter((c:any)=>c.integration?.type==='google_calendar').flatMap((c:any)=>(c.calendars||[]).map((k:any)=>({id:k.externalId,name:k.name||k.externalId,connectionId:String(c.credentialId),selected:k.isSelected===true,writable:k.readOnly!==true})));
+async function dav(cfg:NonNullable<ReturnType<typeof config>>,url:string,method:string,body?:string,headers:Record<string,string>={}){
+ if(new URL(url).origin!==new URL(cfg.url).origin||!url.startsWith(cfg.url))throw Error('Invalid Apple calendar resource');
+ const r=await fetch(url,{method,redirect:'error',headers:{Authorization:cfg.authorization,'Content-Type':method==='PUT'?'text/calendar; charset=utf-8':'application/xml; charset=utf-8',...headers},body,signal:AbortSignal.timeout(18000)});
+ if(!r.ok&&r.status!==404)throw Error(r.status===401?'Apple sign-in failed; check the app-specific password':`Apple Calendar request failed (${r.status})`);return r;
 }
-export function blockRange(start:unknown,end:unknown,before=0,after=0){
- if(typeof start!=='string'||typeof end!=='string'||!/(Z|[+-]\d\d:\d\d)$/.test(start)||!/(Z|[+-]\d\d:\d\d)$/.test(end))throw new Fault('Enter a start and finish time in Brisbane time');
- const a=new Date(start),b=new Date(end);if(!Number.isFinite(+a)||!Number.isFinite(+b)||b<=a||+b-+a>7*864e5)throw new Fault('Finish must follow start, within seven days');
- const pad=(v:number)=>Math.min(180,Math.max(0,Number(v)||0))*60000;
- return {start:new Date(+a-pad(before)).toISOString(),end:new Date(+b+pad(after)).toISOString()};
-}
-export function overlaps(a:any,b:any){return +new Date(a.start)<+new Date(b.end)&&+new Date(a.end)>+new Date(b.start)}
-const marker=(id:string)=>`CRM booking reference: ${id}`;
-async function preferences(){return (await db('crm_settings?id=eq.connectorPreferences&select=value'))[0]?.value||{enabled:false,before:0,after:0}}
-async function state(){
- const prefs=await preferences();
- if(!CAL_KEY)return {configured:false,cal:{connected:false},google:{connected:false,calendars:[]},stripe:{connected:false},preferences:prefs};
- try{
-  const me=await cal('me');if(me.data?.username!=='chanelmonroe')throw new Fault('Connect Chanel Monroe’s Cal.com account',409);
-  const calendars=googleCalendars((await cal('calendars')).data);
-  let stripe=false;try{stripe=(await cal('stripe/check')).status==='success'}catch{}
-  return {configured:true,cal:{connected:true,username:'chanelmonroe'},google:{connected:calendars.length>0,calendars},stripe:{connected:stripe},preferences:prefs};
- }catch(e){return {configured:true,cal:{connected:false},google:{connected:false,calendars:[]},stripe:{connected:false},preferences:prefs,error:e instanceof Fault?e.message:'Connection unavailable'}}
-}
-async function selected(prefs:any){
- const s=await state();if(!s.cal.connected)throw new Fault(s.error||'Connect Cal.com first',409);
- const target=s.google.calendars.find((c:any)=>c.id===prefs.calendarId&&c.connectionId===prefs.connectionId);
- if(!target?.selected||!target.writable)throw new Fault('Choose a writable Google calendar checked for conflicts in Cal.com',409);
- return {target,calendars:s.google.calendars};
-}
-async function syncBooking(id:string,start?:string,end?:string,remove=false){
- const token=crypto.randomUUID();
- if(!await db('rpc/crm_connector_calendar_lock',{method:'POST',body:JSON.stringify({p_token:token,p_release:false})}))throw new Fault('Another calendar update is running. Try again shortly.',409);
- try{
-  const b=(await db(`crm_bookings?id=eq.${id}&select=*`))[0];if(!b)throw new Fault('Booking not found',404);
-  const prefs=await preferences(),old=b.extra?.calendarSync;
-  if(!remove&&b.status==='lost')throw new Fault('Reopen this booking before syncing');
-  const {target,calendars}=await selected(prefs);
-  const extra=b.extra||{},a=start||extra.calendarStart,z=end||extra.calendarEnd;
-  if(!remove&&!a)throw new Fault('Set the booking’s calendar start and finish before confirming it');
-  const range=remove?null:blockRange(a,z,prefs.before,prefs.after);
-  if(old?.eventId&&(old.calendarId!==target.id||old.connectionId!==target.connectionId))throw new Fault('Remove the old calendar block before changing calendars');
-  const base=`calendars/connections/${encodeURIComponent(target.connectionId)}/events`;
-  const query=`calendarId=${encodeURIComponent(target.id)}`;
-  let owned:any=null;
-  if(old?.eventId){try{owned=(await cal(`${base}/${encodeURIComponent(old.eventId)}?${query}`)).data;if(!owned?.description?.includes(marker(id)))throw new Fault('This calendar event does not belong to this booking',403)}catch(e){if(!(e instanceof Fault&&e.status===404))throw e}}
-  if(remove){
-   if(owned)await cal(`${base}/${encodeURIComponent(owned.id)}?${query}`,{method:'DELETE'});
-   const latest=(await db(`crm_bookings?id=eq.${id}&select=extra`))[0]?.extra||{};
-   await db(`crm_bookings?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({extra:{...latest,calendarSync:null},updated_at:new Date().toISOString()})});
-   return {removed:true};
-  }
-  // Check all Google calendars selected for conflicts. No event titles or attendees leave the server.
-  for(const calendar of calendars.filter((c:any)=>c.selected)){
-   const q=new URLSearchParams({calendarId:calendar.id,from:range!.start,to:range!.end,timeZone:'Australia/Brisbane'});
-   const listed=await cal(`calendars/connections/${encodeURIComponent(calendar.connectionId)}/events?${q}`);
-   const events=Array.isArray(listed.data)?listed.data:listed.data?.events;
-   if(Array.isArray(events)&&events.length>=250)throw new Fault('Too many events to verify availability. Review the calendar first.',409);
-   if(!Array.isArray(events))throw new Fault('Calendar availability could not be verified',502);
-   for(const e of events){
-    const own=e.description?.includes(marker(id))&&calendar.id===target.id&&calendar.connectionId===target.connectionId;
-    if(own){if(!owned)owned=e;continue}
-    if(['cancelled','declined'].includes(String(e.status).toLowerCase()))continue;
-    const er={start:e.start?.time,end:e.end?.time};
-    if(/^\d{4}-\d{2}-\d{2}$/.test(er.start||''))throw new Fault('An all-day calendar event blocks this time. Review the calendar first.',409);
-    if(!er.start||!er.end)throw new Fault('A calendar event could not be checked. Review the calendar first.',409);
-    if(overlaps(range,er))throw new Fault('This time overlaps a calendar event or phone consultation. Choose another time.',409);
-   }
-  }
-  const others=await db(`crm_bookings?id=neq.${id}&status=eq.open&stage=in.(booked,day,invoice,review,complete)&select=extra`);
-  for(const other of others){if(other.extra?.calendarStart&&other.extra?.calendarEnd&&overlaps(range,blockRange(other.extra.calendarStart,other.extra.calendarEnd,prefs.before,prefs.after)))throw new Fault('This time overlaps another confirmed CRM booking',409)}
-  const body={title:'Chanel Monroe · makeup booking',description:marker(id),start:{time:range!.start,timeZone:'Australia/Brisbane'},end:{time:range!.end,timeZone:'Australia/Brisbane'}};
-  const event=(await cal(owned?`${base}/${encodeURIComponent(owned.id)}?${query}`:`${base}?${query}`,{method:owned?'PATCH':'POST',body:JSON.stringify(body)})).data;
-  if(!event?.id)throw new Fault('Calendar did not confirm the event',502);
-  const latest=(await db(`crm_bookings?id=eq.${id}&select=extra`))[0]?.extra||{};
-  const sync={eventId:event.id,calendarId:target.id,connectionId:target.connectionId,start:range!.start,end:range!.end,syncedAt:new Date().toISOString()};
-  await db(`crm_bookings?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({extra:{...latest,calendarStart:a,calendarEnd:z,calendarSync:sync},updated_at:new Date().toISOString()})});
-  return {calendarSync:sync};
- }finally{await db('rpc/crm_connector_calendar_lock',{method:'POST',body:JSON.stringify({p_token:token,p_release:true})}).catch(()=>{})}
+export async function available(cfg:NonNullable<ReturnType<typeof config>>,start:string,end:string,uid:string){
+ const query=`<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data><c:expand start="${stamp(start)}" end="${stamp(end)}"/></c:calendar-data></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${stamp(start)}" end="${stamp(end)}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`;
+ const r=await dav(cfg,cfg.url,'REPORT',query,{Depth:'1'});if(!r.ok)throw Error('Apple availability could not be checked');
+ const content=await r.text();if(content.length>2000000)throw Error('Too many Apple appointments to check');
+ if(/HTTP\/1\.[01] [45]\d\d/.test(content))throw Error('Apple did not allow a complete availability check');
+ if(!/<(?:\w+:)?multistatus[\s/>]/i.test(content))throw Error('Invalid Apple availability response');
+ const elements=[...content.matchAll(/<(?:\w+:)?calendar-data(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?calendar-data>/g)];
+ if(!elements.length&&/<(?:\w+:)?response[\s>]/.test(content))throw Error('Apple did not return readable calendar data');
+ for(const element of elements)for(const e of dates(decode(element[1]))){
+  if(e.uid===uid)continue;
+  if(e.start.allDay){throw Error('Apple Calendar has an all-day appointment at this time');}
+  else if(+new Date(e.start.iso!)<+new Date(end)&&+new Date(e.end.iso!)>+new Date(start))throw Error('This time conflicts with an Apple Calendar appointment');
+ }
 }
 Deno.serve(async req=>{
- if(req.method==='OPTIONS')return new Response(null,{status:204,headers:CORS});
- if(req.method!=='POST')return reply({error:'Method not allowed'},405);
+ if(req.method==='OPTIONS')return new Response(null,{headers:CORS});if(req.method!=='POST')return reply({error:'POST only'},405);
  try{
-  const bearer=req.headers.get('authorization')||'';if(!bearer.startsWith('Bearer '))throw new Fault('Sign in to the CRM',401);
-  const auth=await fetch(`${SB}/auth/v1/user`,{headers:{apikey:KEY,Authorization:bearer},signal:AbortSignal.timeout(10000)});
-  if(!auth.ok)throw new Fault('Sign in to the CRM',401);const user=await auth.json();
-  const staff=(await db(`crm_staff?user_id=eq.${encodeURIComponent(user.id)}&select=role`))[0];if(!staff)throw new Fault('Staff access required',403);
-  const raw=await req.text();if(raw.length>8192)throw new Fault('Request too large',413);let input;try{input=JSON.parse(raw)}catch{throw new Fault('Invalid request')}
-  if(input.action==='status')return reply(await state());
-  if(input.action==='preferences'){
-   if(staff.role!=='owner')throw new Fault('Only the owner can change connector settings',403);
-   const prefs={enabled:input.enabled===true,phoneConflictConfirmed:input.phoneConflictConfirmed===true,calendarId:String(input.calendarId||''),connectionId:String(input.connectionId||''),before:Math.max(0,Math.min(180,Number(input.before)||0)),after:Math.max(0,Math.min(180,Number(input.after)||0))};
-   const previous=await preferences();
-   if(previous.calendarId && (previous.calendarId!==prefs.calendarId||previous.connectionId!==prefs.connectionId)){
-    const blocks=await db('crm_bookings?extra->calendarSync=not.is.null&select=id&limit=1');
-    if(blocks.length)throw new Fault('Remove existing calendar blocks before changing the shared calendar',409);
-   }
-   if(prefs.enabled){if(!prefs.phoneConflictConfirmed)throw new Fault('Confirm that the Enquiry event checks this calendar for conflicts');await selected(prefs);}
-   await db('crm_settings?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({id:'connectorPreferences',value:prefs})});
-   return reply({preferences:prefs});
+  const bearer=req.headers.get('authorization')||'';if(!bearer.startsWith('Bearer '))return reply({error:'Sign in to the CRM'},401);
+  const auth=await fetch(`${SB}/auth/v1/user`,{headers:{apikey:KEY,Authorization:bearer},signal:AbortSignal.timeout(10000)});if(!auth.ok)return reply({error:'Sign in to the CRM'},401);
+  const user=await auth.json(),staff=await db(`crm_staff?user_id=eq.${encodeURIComponent(user.id)}&select=role`);if(staff[0]?.role!=='owner')return reply({error:'Only the owner manages Apple Calendar'},403);
+  const raw=await req.text();if(raw.length>4096)return reply({error:'Request too large'},413);const input=JSON.parse(raw),cfg=config();
+  if(input.action==='status'){
+   if(!cfg)return reply({apple:{configured:false,connected:false}});
+   const r=await dav(cfg,cfg.url,'PROPFIND','<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',{Depth:'0'});
+   const text=await r.text();if(!r.ok||!/<(?:\w+:)?calendar[\s/>]/.test(text))throw Error('Apple Calendar could not be verified');return reply({apple:{configured:true,connected:true}});
   }
-  if(!['sync-booking','remove-block'].includes(input.action))throw new Fault('Unknown connector action');
-  if(!/^[0-9a-f-]{36}$/i.test(input.bookingId||''))throw new Fault('Invalid booking reference');
-  return reply(await syncBooking(input.bookingId,input.start,input.end,input.action==='remove-block'));
- }catch(e){return reply({error:e instanceof Fault?e.message:'Connection unavailable. Try again shortly.'},e instanceof Fault?e.status:503)}
+  if(!['check-consult','check-booking','sync-consult','sync-booking','remove-block','remove-consult'].includes(input.action)||!/^[0-9a-f-]{36}$/i.test(input.bookingId||''))return reply({error:'Invalid calendar action'},400);
+  if(!cfg)return reply({ok:true,skipped:true,reason:'Apple Calendar is not connected'});
+  const [b]=await db(`crm_bookings?id=eq.${input.bookingId}&select=*`);if(!b)throw Error('Booking not found');
+  const call=input.action.includes('consult'),uid=`crm-${b.id}-${call?'phone':'makeup'}@chanelmonroe.net`,url=cfg.url+encodeURIComponent(uid)+'.ics';
+  if(input.action==='remove-block'||input.action==='remove-consult'){const found=await dav(cfg,url,'GET');if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');await dav(cfg,url,'DELETE',undefined,{'If-Match':found.headers.get('etag')||'*'})}return reply({ok:true});}
+  const start=call?b.call_at:b.extra?.calendarStart;
+  const end=call&&start?new Date(+new Date(start)+15*60000).toISOString():b.extra?.calendarEnd;
+  if(!start||!end||!Number.isFinite(+new Date(start))||+new Date(end)<=+new Date(start))throw Error('Set exact CRM calendar start and finish times first');
+  await available(cfg,start,end,uid);if(input.action==='check-consult'||input.action==='check-booking')return reply({ok:true});
+  if(call&&(b.extra?.consultation?.provider!=='crm'||b.extra?.consultation?.status!=='confirmed'))throw Error('Chanel must approve the consultation before syncing it');
+  if(b.status==='lost')throw Error('Reopen the enquiry before syncing');
+  const found=await dav(cfg,url,'GET'),headers:Record<string,string>={};
+  if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');headers['If-Match']=found.headers.get('etag')||'*';}else headers['If-None-Match']='*';
+  const content=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Chanel Monroe//CRM//EN','BEGIN:VEVENT',`UID:${uid}`,`DTSTAMP:${stamp(new Date().toISOString())}`,`DTSTART:${stamp(start)}`,`DTEND:${stamp(end)}`,`SUMMARY:Chanel Monroe - ${call?'phone consultation':'makeup booking'}`,'STATUS:CONFIRMED','TRANSP:OPAQUE','END:VEVENT','END:VCALENDAR',''].join('\r\n');
+  const saved=await dav(cfg,url,'PUT',content,headers);if(!saved.ok)throw Error('Apple Calendar did not save the appointment');
+  return reply({ok:true,synced:true});
+ }catch(e){return reply({error:e instanceof Error?e.message:'Apple Calendar unavailable'},409);}
 });

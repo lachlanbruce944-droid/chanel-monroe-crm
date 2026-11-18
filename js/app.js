@@ -189,8 +189,8 @@
 
   /* ================= BOOKING DETAIL ================= */
   const STAGE_ACTIONS = {
-    enquiry: [['reviewEnquiry', '', 'Review enquiry & notes', ''], ['approveConsultation', '', 'Approve phone consultation', 'primary']],
-    call: [['reviewEnquiry', '', 'Review notes', 'ghost'], ['logCall', '', 'Complete call & save details', 'primary']],
+    enquiry: [['reviewEnquiry', '', 'Review enquiry & notes', ''], ['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary'], ['retryConsultationEmail', '', 'Retry consultation email', '']],
+    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['retryConsultationEmail', '', 'Retry consultation email', ''], ['reviewEnquiry', '', 'Review notes', 'ghost'], ['logCall', '', 'Complete call & save details', 'primary']],
     updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Send quote & deposit request', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
@@ -246,8 +246,8 @@
         <div class="next-head"><span class="eyebrow">Step ${si + 1} of ${W.STAGES.length}</span><h2>${esc(W.stage(b.stage).label)}</h2></div>
         <p>${esc(W.stage(b.stage).hint)}</p>
         ${b.enquiryReviewNotes ? `<div class="notes"><h3>Enquiry review</h3><p>${esc(b.enquiryReviewNotes).replace(/\n/g, '<br>')}</p></div>` : ''}
-        ${!b.consultation && b.stage === 'enquiry' ? '<p class="callout">Waiting for the client’s Cal.com phone consultation request to sync.</p>' : ''}
-        ${b.consultation ? `<p class="callout">${icon('phone')} Cal.com · ${b.consultation.status === 'confirmed' ? 'Confirmed' : 'Awaiting approval'} · ${fmtDateTime(b.consultation.startTime)}</p>` : ''}
+        ${!b.callAt && b.stage === 'enquiry' ? '<p class="callout">Choose the phone consultation time in the CRM calendar. Chanel approves it; the client does not need to confirm.</p>' : ''}
+        ${b.consultation ? `<p class="callout">${icon('phone')} CRM phone consultation · ${b.consultation.status === 'confirmed' && b.consultation.provider === 'crm' ? 'Approved by Chanel' : 'Pending Chanel’s approval'} · ${fmtDateTime(b.consultation.startTime)} · Brisbane time${b.consultation.emailStatus ? ' · Email: ' + esc(b.consultation.emailStatus) : ''}</p>` : ''}
         ${b.stage === 'call' && b.callAt ? `<p class="callout">${icon('phone')} Call ${relDays(ymd(new Date(b.callAt)))} · ${fmtDateTime(b.callAt)}</p>` : ''}
         ${chk.next && chk.reasons.length ? `<ul class="checks">${chk.reasons.map(r => `<li class="${r.soft ? 'soft' : 'hard'}">${esc(r.text)}</li>`).join('')}</ul>` : ''}
         <div class="next-actions">${STAGE_ACTIONS[b.stage].map(([act, arg, label, cls]) => `<button class="btn ${cls}" data-act="${act}" data-id="${b.id}" data-arg="${arg}">${label}</button>`).join('')}</div>
@@ -446,7 +446,7 @@
     DB.list('bookings', b => b.status !== 'lost').forEach(b => {
       const c = W.clientOf(b);
       if (b.eventDate) push(b.eventDate, { kind: 'event', cls: `s-${b.stage}`, tentative: W.idx(b.stage) < W.idx('booked'), text: W.clientName(c), sub: `${b.eventType || 'Event'}${b.readyBy ? ' · ready ' + fmtTime(b.readyBy) : ''}`, href: `#/booking/${b.id}`, time: b.readyBy || '' });
-      if (b.callAt && W.idx(b.stage) <= W.idx('call')) push(ymd(new Date(b.callAt)), { kind: 'call', cls: 'call', text: `Call ${c.firstName || ''}`, sub: fmtTime(toLocalInput(b.callAt).slice(11)), href: `#/booking/${b.id}`, time: toLocalInput(b.callAt).slice(11) });
+      if (b.callAt && W.idx(b.stage) <= W.idx('call')) push(Connectors.brisbaneInput(b.callAt).slice(0,10), { kind: 'call', cls: 'call', text: `${b.consultation?.status === 'confirmed' && b.consultation?.provider === 'crm' ? 'Confirmed call' : 'Pending call'} ${c.firstName || ''}`, sub: fmtTime(Connectors.brisbaneInput(b.callAt).slice(11)) + ' AEST', href: `#/booking/${b.id}`, time: Connectors.brisbaneInput(b.callAt).slice(11) });
     });
     DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day')).forEach(r => push(ymd(new Date(r.dueAt)), { kind: 'rem', cls: 'rem', text: r.title, sub: 'Reminder', href: r.bookingId ? `#/booking/${r.bookingId}` : '#/', time: '' }));
     const cells = [];
@@ -462,7 +462,7 @@
     const sel = (items[state.calSelected] || []).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
     return {
       title: first.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }),
-      actions: `<button class="icon-btn" data-act="calNav" data-arg="-1">${icon('chevL')}</button><button class="btn ghost sm" data-act="calNav" data-arg="0">Today</button><button class="icon-btn" data-act="calNav" data-arg="1">${icon('chevR')}</button>`,
+      actions: `<button class="btn primary sm" data-act="calendarConsultation">Schedule phone call</button><button class="icon-btn" data-act="calNav" data-arg="-1">${icon('chevL')}</button><button class="btn ghost sm" data-act="calNav" data-arg="0">Today</button><button class="icon-btn" data-act="calNav" data-arg="1">${icon('chevR')}</button>`,
       html: `<section class="card flush cal">
           <div class="cal-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
           <div class="cal-grid">${cells.join('')}</div>
@@ -822,7 +822,7 @@
 
   /* ================= ACTIONS (buttons) ================= */
   const Actions = {
-    async removeCalendarBlock(d){const b=DB.get('bookings',d.id);if(!await confirmBox('Remove this job’s busy block from Google Calendar? Phone-call times may become available again.','Remove block'))return;await Connectors.removeBlock(b);toast('Calendar block removed');rerender();},
+    async removeCalendarBlock(d){const b=DB.get('bookings',d.id);if(!await confirmBox('Remove this job’s exported Apple Calendar events? CRM appointment times stay reserved.','Remove events'))return;await Connectors.removeBlock(b);toast('Apple Calendar events removed');rerender();},
     async logout() { await Auth.logout(); location.hash = '#/'; render(); },
     async recheck() { await Auth.loadStaff(); if (Auth.isStaff()) await afterSignIn(); else toast('Still waiting for access', 'error'); },
     async forgot() {
@@ -858,18 +858,27 @@
     async approveConsultation(d) {
       const b = DB.get('bookings', d.id);
       if (!b.enquiryReviewedAt) return toast('Review the enquiry first');
-      if (!b.consultation?.uid) return toast('Waiting for the Cal.com request to sync');
-      if (!await confirmBox('Approve phone consultation', `Approve the client’s requested call for ${fmtDateTime(b.consultation.startTime)}? This confirms only the phone consultation in Cal.com. The makeup booking still requires a quote and deposit.`)) return;
+      if (!b.callAt) return toast('Schedule the phone consultation first');
+      if (!await confirmBox(`Approve the client’s requested call for ${fmtDateTime(b.callAt)} Brisbane time? This sends the phone consultation booking email. No client confirmation is required. The makeup booking still requires a quote and deposit.`, 'Approve & email')) return;
       await W.approveConsultation(b);
       toast('Phone consultation approved'); rerender();
     },
+    async calendarConsultation() {
+      const enquiries = DB.list('bookings', b => b.status !== 'lost' && ['enquiry','call'].includes(b.stage) && !b.callLoggedAt);
+      if(!enquiries.length) return toast('Create an enquiry first, then schedule its phone consultation');
+      const picked = await modal({ title:'Select enquiry for phone consultation', submitLabel:'Choose time',
+        body:`<label>Enquiry<select name="bookingId" required>${enquiries.map(b => `<option value="${esc(b.id)}">${esc(W.clientName(W.clientOf(b)))} · ${esc(b.eventType || 'Enquiry')} · ${esc(b.eventDate || 'No date')}</option>`).join('')}</select></label>`,
+        onSubmit:f => f.bookingId });
+      if(picked) await Actions.scheduleCall({id:picked,day:state.calSelected});
+    },
+    async retryConsultationEmail(d) { await W.retryConsultationEmail(DB.get('bookings', d.id)); toast('Consultation email sent'); rerender(); },
     async scheduleCall(d) {
-      const b = DB.get('bookings', d.id); const def = b.callAt || W.daysFromNow(1, '17:30');
-      await modal({ title: 'Schedule phone call', submitLabel: 'Schedule call',
-        body: `<label>Date & time<input type="datetime-local" name="at" required value="${toLocalInput(def)}"></label>
+      const b = DB.get('bookings', d.id); const def = d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : b.callAt || W.daysFromNow(1, '17:30');
+      await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
+        body: `<label>Date & time · Brisbane<input type="datetime-local" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
-          <label>Note (optional)<input name="note" placeholder="e.g. she'll call you"></label>`,
-        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at).toISOString(), f.note); toast('Call scheduled'); } });
+          <p class="muted small">Free 15-minute call. Pending until Chanel approves. Normally at least three days before makeup. The client does not confirm.</p><label>Short-notice exception reason (if under three days)<input name="note" placeholder="Chanel’s reason for approving short notice"></label>`,
+        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString(), f.note); toast('Consultation pending Chanel’s approval'); } });
       rerender();
     },
     async logCall(d) {
@@ -1084,7 +1093,7 @@
         ${b ? `<a class="btn primary" href="#/booking/${b.id}">View in CRM</a>` : '<a class="btn" href="#/enquire" data-act="reloadForm">Send another enquiry</a>'}</div>`;
       window.scrollTo(0, 0);
     },
-    async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('Calendar time block synced');rerender();},
+    async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('CRM calendar time block saved');rerender();},
     async details(f, form) {
       const b = DB.get('bookings', form.dataset.id);
       await W.saveBooking(b, { eventType: f.eventType, eventDate: f.eventDate, readyBy: f.readyBy, startTime: f.startTime, location: f.location,

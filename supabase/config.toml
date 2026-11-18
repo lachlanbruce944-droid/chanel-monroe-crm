@@ -1,3 +1,10 @@
 # Public website application endpoint; input is validated inside the function.
 [functions.application]
 verify_jwt = false
+
+# The function validates the bearer token and owner role itself (supports publishable keys).
+[functions.consultation-manage]
+verify_jwt = false
+
+[functions.crm-connectors]
+verify_jwt = false

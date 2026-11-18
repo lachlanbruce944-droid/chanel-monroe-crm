@@ -28,6 +28,10 @@ Every website enquiry turns into a client and a booking automatically. The booki
 - **The first account to sign in becomes the owner** (Chanel). Anyone else who signs up sees "waiting for access" until the owner adds their email under *Profile → Team accounts*.
 - The database itself blocks every `crm_*` table unless you are signed in as staff (row-level security). The key in `js/config.js` is Supabase's *publishable* key and is safe to be public.
 
+## Phone consultation update — 19 November 2026
+
+Website requests remain pending until Chanel reviews and approves in the CRM calendar. Approval sends a phone confirmation email; makeup confirmation still requires the completed call, quote and deposit. Settings now offers Apple Calendar and Stripe. See [deployment requirements](docs/CRM-CONSULTATIONS.md) before publishing; backend deployment and iCloud authorization are required.
+
 ## The booking workflow
 Enquiry → Phone call → Updates & quote → Deposit → Booked (reminders) → The day (photos) → Final invoice → Review → Complete
 

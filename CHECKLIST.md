@@ -54,3 +54,12 @@ _Last updated: 16 Nov 2026. Tick items off here as they're done; add new ones at
 - [ ] Owner signs into Cal.com, connects Google Calendar/Stripe, and securely configures CAL_API_KEY.
 - [ ] Choose the shared writable Google calendar and verify the Enquiry event checks it; sync existing booked jobs and enable protection.
 - [ ] Live event/payment integration test after account activation. No appointment, payment or Google event was created during deployment.
+
+## 19 November 2026 consultation replacement (committed locally, unpublished)
+- [x] Remove Cal.com from website booking and CRM approval flow.
+- [x] Owner scheduling/approval, pending and confirmed emails, email retries and CRM calendar guards.
+- [x] Apple iCloud CalDAV connector replaces Google Calendar and Cal.com; Stripe stays separate.
+- [x] 29 CRM and 10 website tests, website build and JavaScript syntax checks pass.
+- [ ] GitHub authenticated push and Pages publication.
+- [ ] Deploy matching Supabase services and reapply consultation migration before frontends.
+- [ ] Configure Apple credentials and verify signed-in scheduling, email and real iCloud sync.
