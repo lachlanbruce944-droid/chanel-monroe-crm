@@ -405,6 +405,11 @@
 
   async function saveBooking(b, patch, what = 'Details updated') {
     const before = fresh(b);
+    if (patch.lines && DB.find('invoices', i => i.bookingId === before.id &&
+      (i.type === 'final' && (i.stripeInvoiceId || i.status === 'paid') ||
+       i.type === 'deposit' && i.stripeInvoiceId && i.status !== 'paid'))) {
+      throw Error('Reconcile the issued invoice in Stripe before changing quote lines');
+    }
     if (patch.additionalCosts !== undefined) {
       if (!before.callLoggedAt) throw Error('Complete the phone consultation before adding costs');
       if (!Number.isFinite(+patch.additionalCosts) || +patch.additionalCosts < 0) throw Error('Enter a valid additional cost');
