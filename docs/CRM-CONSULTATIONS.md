@@ -49,3 +49,11 @@ The CRM remains authoritative for consultation approval, quote and makeup confir
 Approved calls sync to Apple. Rescheduling resets CRM approval and removes the old phone event. Confirmed makeup time blocks sync after confirmation. Changes made directly in Apple Calendar do not rewrite CRM approval or quote data. There is no unattended background sync; use the CRM actions and Sync existing appointments. Other Apple calendars are not checked unless they are the configured calendar. If Apple is unconfigured, CRM scheduling still works and Settings clearly reports not connected. Do not call this a connected integration until the real iCloud connection has been checked.
 
 Apple setup reference: https://support.apple.com/en-au/102654
+
+## Enquiry holds and Apple Calendar
+
+Apply the appointment-holds migration before deploying the updated CRM calendar. Install the updated `crm-connectors` and `consultation-manage` Edge Functions, then apply the Apple worker migration to enable the minute-by-minute queue. Connect the private iCloud calendar from CRM Settings. The worker retries failures and has no public access to its credentials or queue.
+
+Each enquiry with an exact start or ready-by time creates a pending three-hour service hold followed by one hour of buffer in Brisbane time. A ready-by time is treated as the service finish. A date-only enquiry needs a time before it creates a makeup block. The client can request a separate 15-minute consultation even if the time is busy. Review overlaps before approval and propose another time if needed. Cancelling an enquiry clears its holds.
+
+The private Apple Calendar receives tentative and confirmed holds. Existing events in the connected Apple calendar are checked before confirmation. CRM approval, booking status and quotes are managed in the CRM. All services currently use the same default. To introduce per-service recommendations, add a duration resolver and a booking-level duration snapshot to preserve existing holds when recommendations change, then use that duration in the CRM, database range and Apple export.

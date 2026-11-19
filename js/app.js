@@ -452,7 +452,12 @@
     const push = (day, it) => { (items[day] = items[day] || []).push(it); };
     DB.list('bookings', b => b.status !== 'lost').forEach(b => {
       const c = W.clientOf(b);
-      if (b.eventDate) push(b.eventDate, { kind: 'event', cls: `s-${b.stage}`, tentative: W.idx(b.stage) < W.idx('booked'), text: W.clientName(c), sub: `${b.eventType || 'Event'}${b.readyBy ? ' · ready ' + fmtTime(b.readyBy) : ''}`, href: `#/booking/${b.id}`, time: b.readyBy || '' });
+      const hold = Connectors.makeupHold(b);
+      if (hold) {
+        const start = Connectors.brisbaneInput(hold.start), end = Connectors.brisbaneInput(hold.end), buffer = Connectors.brisbaneInput(hold.busyUntil);
+        push(start.slice(0,10), { kind:'event', cls:`s-${b.stage}`, tentative:W.idx(b.stage)<W.idx('booked'), text:W.clientName(c),
+          sub:`${b.eventType || 'Makeup'} · ${fmtTime(start.slice(11))}–${fmtTime(end.slice(11))} · Buffer to ${fmtTime(buffer.slice(11))}`, href:`#/booking/${b.id}`, time:start.slice(11) });
+      } else if (b.eventDate) push(b.eventDate, { kind:'event', cls:`s-${b.stage}`, tentative:true, text:W.clientName(c), sub:'Makeup time to be arranged', href:`#/booking/${b.id}`, time:'' });
       if (b.callAt && !b.callLoggedAt) push(Connectors.brisbaneInput(b.callAt).slice(0,10), { kind: 'call', cls: b.consultation?.status === 'confirmed' ? 'call' : 'call tent', text: `${b.consultation?.status === 'confirmed' && b.consultation?.provider === 'crm' ? 'Confirmed call' : 'Pending approval'} ${W.clientName(c)}`, sub: fmtTime(Connectors.brisbaneInput(b.callAt).slice(11)) + ' AEST', href: `#/booking/${b.id}`, time: Connectors.brisbaneInput(b.callAt).slice(11) });
     });
     DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day')).forEach(r => push(ymd(new Date(r.dueAt)), { kind: 'rem', cls: 'rem', text: r.title, sub: 'Reminder', href: r.bookingId ? `#/booking/${r.bookingId}` : '#/', time: '' }));
@@ -879,11 +884,14 @@
     },
     async retryConsultationEmail(d) { await W.retryConsultationEmail(DB.get('bookings', d.id)); toast('Consultation email sent'); rerender(); },
     async scheduleCall(d) {
-      const b = DB.get('bookings', d.id); const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
-      await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
+      const b = DB.get('bookings', d.id);
+      const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
+      const conflict = b.callAt && Connectors.calendarConflicts(b, b.callAt, new Date(+new Date(b.callAt) + 15 * 60000).toISOString(), true);
+      await modal({ title: 'Schedule phone consult', submitLabel: b.callAt ? 'Save proposed time & email' : 'Save pending consult & email',
         body: `<label>Date & time · Brisbane<input type="datetime-local" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
+          ${conflict ? '<p class="callout">This request overlaps a CRM calendar hold. Propose another time before approving.</p>' : ''}
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
-          <p class="muted small">Free 15-minute call. Pending until Chanel approves. Normally at least three days before makeup. The client does not confirm.</p><label>Short-notice exception reason (if under three days)<input name="note" placeholder="Chanel’s reason for approving short notice"></label>`,
+          <p class="muted small">Free 15-minute call. Pending until Chanel approves. Normally at least three days before makeup. The client does not confirm.</p><label>Short-notice exception reason (if under three days)<input name="note" placeholder="Chanel’s reason for approving short notice" value="${esc(b.consultation?.exceptionReason || '')}"></label>`,
         async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString(), f.note); toast('Consultation pending Chanel’s approval'); } });
       rerender();
     },
@@ -1099,7 +1107,7 @@
         ${b ? `<a class="btn primary" href="#/booking/${b.id}">View in CRM</a>` : '<a class="btn" href="#/enquire" data-act="reloadForm">Send another enquiry</a>'}</div>`;
       window.scrollTo(0, 0);
     },
-    async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('CRM calendar time block saved');rerender();},
+    async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart);toast('CRM calendar time block saved');rerender();},
     async serviceNotes(f, form) {
       const b = DB.get('bookings', form.dataset.id);
       await W.saveBooking(b, {serviceNotes:f.serviceNotes, additionalCosts:+f.additionalCosts, additionalCostsReason:f.additionalCostsReason}, 'Service notes and agreed additional costs updated');

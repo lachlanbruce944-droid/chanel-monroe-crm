@@ -11,3 +11,15 @@ test('approved consult writes stable event with UTC times and minimal data',asyn
 test('UTC parsing rejects recurring, local timezone and malformed availability',async()=>{const {dates}=await loaded;const s='BEGIN:VEVENT\r\nUID:busy\r\nDTSTART:20261201T010000Z\r\nDTEND:20261201T020000Z\r\nEND:VEVENT';assert.equal(dates(s)[0].start.iso,'2026-12-01T01:00:00Z');assert.throws(()=>dates(s.replace('DTSTART:','RRULE:FREQ=DAILY\r\nDTSTART:')),/recurring/);assert.throws(()=>dates(s.replace('DTSTART:20261201T010000Z','DTSTART;TZID=Europe/Paris:20261201T010000')),/timezone/);assert.throws(()=>dates('broken'),/unreadable/)});
 test('Apple conflict prevents calendar export',async()=>{configured=true;const original=global.fetch;global.fetch=async(url,init={})=>init.method==='REPORT'?new Response('<d:multistatus><d:response><c:calendar-data>BEGIN:VEVENT\r\nUID:external\r\nDTSTART:20261201T010500Z\r\nDTEND:20261201T020000Z\r\nEND:VEVENT</c:calendar-data></d:response></d:multistatus>',{status:207}):original(url,init);const r=await invoke('sync-consult');assert.equal(r.status,409);assert.match(await r.text(),/conflicts with an Apple Calendar/);assert.ok(!requests.some(r=>r.method==='PUT'))});
 test('unreadable or reversed Apple appointment times fail closed',async()=>{const {dates}=await loaded;const event=(start,end)=>`BEGIN:VEVENT\r\nUID:busy\r\nDTSTART:${start}\r\nDTEND:${end}\r\nEND:VEVENT`;assert.throws(()=>dates(event('20261301T010000Z','20261301T020000Z')),/duration/);assert.throws(()=>dates(event('20261201T020000Z','20261201T010000Z')),/duration/)});
+test('an enquiry exports a tentative makeup hold from its ready-by time through the buffer',async()=>{
+ configured=true;
+ const original=global.fetch;
+ global.fetch=async(url,init={})=>new URL(url).pathname.endsWith('/crm_bookings')
+  ?json([{id,status:'open',stage:'enquiry',event_date:'2026-12-01',ready_by:'14:00:00'}])
+  :original(url,init);
+ const r=await invoke('sync-booking');assert.equal(r.status,200,await r.text());
+ const put=requests.find(r=>r.method==='PUT');
+ assert.match(put.body,/DTSTART:20261201T010000Z/);
+ assert.match(put.body,/DTEND:20261201T050000Z/);
+ assert.match(put.body,/STATUS:TENTATIVE/);
+});
