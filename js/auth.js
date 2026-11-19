@@ -18,6 +18,11 @@
       sb.auth.onAuthStateChange((event, session) => {
         this.session = session;
         if (event === 'PASSWORD_RECOVERY') this.recovery = true;
+        if (event === 'USER_UPDATED' && this.current && session?.user?.id === this.current.id) {
+          const changed = this.current.email !== session.user.email;
+          Object.assign(this.current, { email: session.user.email, pendingEmail: session.user.new_email || '' });
+          if (changed && onChange) setTimeout(() => onChange(event), 0);
+        }
         if (onChange && ['PASSWORD_RECOVERY', 'SIGNED_OUT'].includes(event)) setTimeout(() => onChange(event), 0);
       });
       if (this.session) await this.loadStaff();
@@ -31,7 +36,7 @@
       if (error) throw new Error(error.message);
       if (state === 'pending') { this.status = 'pending'; this.current = { id: u.id, email: u.email, name: name || u.email }; return; }
       const { data: row } = await sb.from('crm_staff').select('*').eq('user_id', u.id).maybeSingle();
-      this.current = { id: u.id, email: u.email, name: row?.name || name || u.email, role: row?.role || 'assistant' };
+      this.current = { id: u.id, email: u.email, pendingEmail: u.new_email || '', name: row?.name || name || u.email, role: row?.role || 'assistant' };
       this.status = 'staff';
       await this.loadTeam();
     },
@@ -85,18 +90,28 @@
     },
 
     async updateMe({ name, email }) {
+      const nextEmail = (email || '').trim().toLowerCase();
+      if (!emailOk(nextEmail)) throw new Error('Please enter a valid email address');
+      let emailStatus;
+      if (nextEmail !== this.current.email?.toLowerCase()) {
+        if (nextEmail === this.current.pendingEmail?.toLowerCase()) {
+          emailStatus = 'confirm-email';
+        } else {
+          const { data, error } = await sb.auth.updateUser({ email:nextEmail }, { emailRedirectTo:here() });
+          if (error) throw new Error(error.message);
+          const updated = data.user?.email?.toLowerCase() === nextEmail;
+          this.current.email = data.user?.email || this.current.email;
+          this.current.pendingEmail = updated ? '' : data.user?.new_email || nextEmail;
+          emailStatus = updated ? 'updated' : 'confirm-email';
+        }
+      }
       if (name && name !== this.current.name) {
         const { error } = await sb.from('crm_staff').update({ name }).eq('user_id', this.current.id);
         if (error) throw new Error(error.message);
         this.current.name = name;
       }
-      if (email && email.toLowerCase() !== this.current.email) {
-        if (!emailOk(email)) throw new Error('Please enter a valid email address');
-        const { error } = await sb.auth.updateUser({ email }, { emailRedirectTo: here() });
-        if (error) throw new Error(error.message);
-        return 'confirm-email';
-      }
       await this.loadTeam();
+      return emailStatus;
     },
 
     async addStaff(email, name) {

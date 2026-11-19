@@ -6,7 +6,7 @@
     icon, stars, toast, modal, confirmBox, toLocalInput, copyText, download, pad } = UI;
   const W = Workflow;
   const $app = () => document.getElementById('app');
-  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all', pipelineMode: 'list', pipelineFilter: 'active', connectionProfession: 'all' };
+  const state = { calMonth: null, calSelected: today(), showLost: false, invoiceFilter: 'all', pipelineFilter: 'active', connectionProfession: 'all' };
   const blobCache = new Map();
 
   /* ---------------- routing ---------------- */
@@ -38,6 +38,7 @@
       default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
     }
     renderShell(view, p0 || '');
+    initialiseEditCards();
     if (view.after) view.after();
     loadPhotos();
     loadClientPortraits().catch(err=>console.warn('Client portraits unavailable',err));
@@ -98,15 +99,6 @@
         <button class="icon-btn" data-act="remDone" data-id="${r.id}" title="Done">${icon('check')}</button>
         <button class="icon-btn" data-act="remSkip" data-id="${r.id}" title="Skip">${icon('x')}</button></div>` : ''}
     </li>`;
-  }
-  function bookingCard(b) {
-    const c = W.clientOf(b); const t = W.totals(b);
-    const pend = DB.list('reminders', r => r.bookingId === b.id && r.status === 'pending' && new Date(r.dueAt) <= new Date()).length;
-    return `<a class="deal" href="#/booking/${b.id}" data-search="${esc((W.clientName(c) + ' ' + (b.eventType || '') + ' ' + (b.location || '') + ' ' + (c.email || '')).toLowerCase())}">
-      <div class="deal-top"><strong>${esc(W.clientName(c))}</strong>${daysBadge(b)}</div>
-      <div class="muted">${esc(b.eventType || 'Event')} · ${fmtShort(b.eventDate)}${b.readyBy ? ' · ' + fmtTime(b.readyBy) : ''}</div>
-      <div class="deal-foot"><span>${t.total ? money(t.total) : '<em>No quote</em>'}</span>${pend ? `<span class="due">${icon('bell')}${pend}</span>` : ''}${b.status === 'lost' ? '<span class="badge lost">Lost</span>' : ''}</div>
-    </a>`;
   }
   const empty = (text, cta = '') => `<div class="empty">${text}${cta ? '<div>' + cta + '</div>' : ''}</div>`;
 
@@ -179,12 +171,11 @@
         <div class="enquiry-value"><strong>${t.total?money(t.total):'Quote needed'}</strong>${t.total?`<small class="muted">${money(t.balance)} remaining</small>`:''}</div>
         <a class="btn sm" href="#/booking/${b.id}">Open ${b.stage==='enquiry'?'enquiry':'booking'} →</a></article>`;
     }).join('');
-    const board=`<div class="board">${W.STAGES.map(stage=>{const bs=list.filter(b=>b.stage===stage.key);return `<section class="col"><header><span class="dot s-${stage.key}"></span><h3>${esc(stage.label)}</h3><b>${bs.length}</b></header><div class="col-body">${bs.map(bookingCard).join('')||'<div class="col-empty">No enquiries</div>'}</div></section>`}).join('')}</div>`;
     return {title:'Enquiries & bookings',subtitle:`${active.length} active · see the next step for every client`,
       actions:`<label class="search">${icon('search')}<input type="search" placeholder="Search name, email or service" data-filter=".deal"></label><a class="btn primary sm" href="#/new">${icon('plus')} New enquiry</a>`,
       html:`<nav class="enquiry-filters">${filters.map(([k,l,n])=>`<button class="enquiry-filter ${state.pipelineFilter===k?'selected':''}" data-act="pipelineFilter" data-arg="${k}"><span>${l}</span><strong>${n}</strong></button>`).join('')}</nav>
-      <section class="card"><div class="card-head"><div><h2>${esc(filters.find(f=>f[0]===state.pipelineFilter)?.[1]||'Enquiries')}</h2><span class="muted small">${list.length} records · earliest event first</span></div><button class="btn ghost sm" data-act="pipelineMode">${state.pipelineMode==='list'?'Switch to board':'Switch to list'}</button></div>
-      ${list.length ? state.pipelineMode==='board'?board:`<div class="enquiry-list">${rows}</div>` : empty('Nothing in this view yet. New website enquiries arrive automatically.','<a class="btn" href="#/new">Add an enquiry</a>')}</section>`};
+      <section class="card"><div class="card-head"><div><h2>${esc(filters.find(f=>f[0]===state.pipelineFilter)?.[1]||'Enquiries')}</h2><span class="muted small">${list.length} records · earliest event first</span></div></div>
+      ${list.length ? `<div class="enquiry-list">${rows}</div>` : empty('Nothing in this view yet. New website enquiries arrive automatically.','<a class="btn" href="#/new">Add an enquiry</a>')}</section>`};
   }
 
   /* ================= BOOKING DETAIL ================= */
@@ -200,6 +191,21 @@
     complete: []
   };
 
+
+  function referenceImageUrl(src) {
+    if (typeof src !== 'string' || !src.trim()) return '';
+    if (/^https?:\/\//i.test(src)) return safeWeb(src);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(src) || /^\/\//.test(src)) return '';
+    const path = src.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    return window.CRM_CONFIG.supabaseUrl + '/storage/v1/object/public/media/' + path;
+  }
+
+  function showEnquiryImage(title, src, credit = '') {
+    return modal({title, wide:true, hideSubmit:true, cancelLabel:'Close',
+      body:`<img class="photo-full" src="${esc(src)}" alt="${esc(title)}">
+        ${credit ? `<p class="muted small">${esc(credit)}</p>` : ''}
+        <a class="btn sm" href="${esc(src)}" target="_blank" rel="noopener">Open full image ↗</a>`});
+  }
 
   /** Everything the client chose in the website's chat enquiry. */
   function websiteCard(b) {
@@ -220,7 +226,8 @@
     return `<div class="notes web">
       <h3>From the website enquiry</h3>
       <dl class="answers">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-      ${refs.length ? `<h3>Reference looks they picked</h3><div class="ref-grid">${refs.map(r => `<a href="${esc(r.post || r.src)}" target="_blank" rel="noopener"><img src="${esc(r.src)}" alt="" loading="lazy"><span>${esc(r.by || '')}</span></a>`).join('')}</div>` : ''}
+      ${refs.length ? `<h3>Reference looks they picked</h3><div class="ref-grid">${refs.map(r => `<button type="button" data-act="viewReference" data-src="${esc(referenceImageUrl(r.src))}" data-title="${esc(r.desc || 'Reference look')}" data-credit="${esc(r.by || '')}" aria-label="View reference image"><img src="${esc(referenceImageUrl(r.src))}" alt="" loading="lazy"><span>${esc(r.by || '')}</span></button>`).join('')}</div>` : ''}
+      ${b.websiteEnquiryId || w.enquiryId ? `<button type="button" class="btn sm" data-act="viewEnquirySelfie" data-id="${esc(b.websiteEnquiryId || w.enquiryId)}">View enquiry selfie</button>` : ''}
       ${team.length ? `<h3>Beauty team they’re interested in</h3><ul class="team">${team.map(a => `<li><a href="${esc(a.instagram || a.site || '#')}" target="_blank" rel="noopener">@${esc(a.handle || a.name)}</a> <small class="muted">${esc(a.category || '')}</small></li>`).join('')}</ul>` : ''}
     </div>`;
   }
@@ -590,7 +597,7 @@
   async function editConnection(id) {
     const x = id ? DB.get('people', id) : {kind:'team',status:'active',connectionStatus:'prospect'}; if(!x)return;
     const field = (name,label,type='text') => `<label>${label}<input type="${type}" name="${name}" value="${esc(x[name] || '')}"></label>`;
-    await modal({title:id?'Edit connection':'Add a connection',wide:true,body:`<div class="form-grid">
+    await modal({title:id?'Edit connection':'Add a connection',submitLabel:id?'Confirm adjustments':'Add connection',wide:true,body:`<div class="form-grid">
       <label>Type<select name="kind"><option value="team" ${x.kind==='team'?'selected':''}>Associate</option><option value="affiliate" ${x.kind==='affiliate'?'selected':''}>Affiliate</option></select></label>
       <label>Relationship status<select name="connectionStatus">${Object.entries(CONNECTION_STATES).map(([k,v])=>`<option value="${k}" ${x.connectionStatus===k?'selected':''}>${v}</option>`).join('')}</select></label>
       <fieldset class="span-2"><legend>Professions — select all that apply</legend><div class="profession-options">${PROFESSIONS.map(p=>`<label class="check"><input type="checkbox" name="professions[]" value="${esc(p)}" ${profileProfessions(x).includes(p)?'checked':''}>${esc(p)}</label>`).join('')}</div></fieldset>${field('firstName','First name')}${field('lastName','Last name')}${field('businessName','Business / profile name')}${field('role','Role / service')}${field('email','Email','email')}${field('phone','Mobile','tel')}${field('instagram','Instagram handle')}${field('website','Website','url')}${field('photoUrl','Profile image URL','url')}${field('areas','Service areas')}
@@ -613,7 +620,7 @@
   function viewProfile() {
     const p = W.profile(); const u = Auth.current;
     const inp = (name, label, type = 'text', extra = '') => `<label>${label}<input type="${type}" name="${name}" value="${esc(p[name] ?? '')}" ${extra}></label>`;
-    const users = Auth.team;
+    const users = Auth.team.map(account => account.id === u.id ? { ...account, name:u.name, email:u.email } : account);
     return {
       title: 'Profile & settings',
       html: `<div class="detail">
@@ -656,6 +663,7 @@
         </div>
         <div class="detail-side">
           <section class="card"><div class="card-head"><h2>Your account</h2></div>
+            ${u.pendingEmail ? `<p class="callout" role="status">Sign-in email change pending for <strong>${esc(u.pendingEmail)}</strong>. Check both inboxes and follow any confirmation links you receive.</p>` : ''}
             <form data-form="me" class="stack"><label>Name<input name="name" value="${esc(u.name)}" required></label><label>Email (sign-in)<input type="email" name="email" value="${esc(u.email)}" required></label><button class="btn sm">Save</button></form>
             <form data-form="password" class="stack"><h3>Change password</h3><label>Current password<input type="password" name="old" required></label><label>New password<input type="password" name="next" minlength="8" required></label><button class="btn sm">Update password</button></form>
           </section>
@@ -839,7 +847,6 @@
     },
     reloadForm() { renderPublicEnquiry(); window.scrollTo(0, 0); },
     pipelineFilter(d) { state.pipelineFilter=d.arg;rerender(); },
-    pipelineMode() { state.pipelineMode=state.pipelineMode==='list'?'board':'list';rerender(); },
     toggleLost() { state.showLost = !state.showLost; rerender(); },
     tpl(d) { return openComposer(d.id, d.arg); },
     async allTemplates(d) {
@@ -889,14 +896,19 @@
     },
     async logCall(d) {
       const b = DB.get('bookings', d.id);
-      await modal({ title: b.stage === 'updates' ? 'Add an update' : 'Complete phone consultation', submitLabel: b.stage === 'updates' ? 'Save update' : 'Save details & prepare quote', wide: true,
-        body: `<label>Notes<textarea name="notes" rows="6" required placeholder="Look, timings, number of people, trial, budget, parking…"></textarea></label>
+      const readyBy = b.readyBy || b.startTime || '';
+      await modal({ title: b.stage === 'updates' ? 'Add an update' : 'Complete phone consultation', submitLabel: b.stage === 'updates' ? 'Confirm adjustments' : 'Confirm adjustments & prepare quote', wide: true,
+        body: `<label>Notes (optional)<textarea name="notes" rows="6" placeholder="Look, timings, number of people, trial, budget, parking…"></textarea></label>
           <p class="small muted">Update anything that changed:</p>
           <div class="form-grid"><label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
-          <label>Ready by<input type="time" name="readyBy" value="${esc(b.readyBy)}"></label>
+          <label>Ready by<input type="time" name="readyBy" value="${esc(readyBy)}"></label>
           <label>Location<input name="location" value="${esc(b.location)}"></label>
           <label>People<input type="number" min="1" name="partySize" value="${esc(b.partySize || 1)}"></label></div>`,
-        async onSubmit(f) { await W.logCall(b, f.notes, f); toast(b.stage === 'call' ? 'Notes saved — now build the quote' : 'Saved'); } });
+        async onSubmit(f) {
+          if (!b.readyBy && f.readyBy === readyBy) delete f.readyBy;
+          await W.logCall(b, f.notes, f);
+          toast(b.stage === 'call' ? 'Call completed — ready to prepare the quote' : 'Details saved');
+        } });
       rerender();
       if (DB.get('bookings', d.id).stage === 'updates') document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' });
     },
@@ -943,6 +955,17 @@
       rerender();
     },
     photo() { document.querySelector('[data-change="photos"]')?.click(); },
+    async viewReference(d) {
+      if (d.src) await showEnquiryImage(d.title, d.src, d.credit);
+    },
+    async viewEnquirySelfie(d) {
+      const {data, error} = await DB.client.from('enquiries').select('selfie_path').eq('id',d.id).maybeSingle();
+      if (error) throw Error('Unable to access this enquiry selfie');
+      if (!data?.selfie_path) { toast('No selfie was attached to this enquiry'); return; }
+      const signed = await DB.client.storage.from('selfies').createSignedUrl(data.selfie_path,600);
+      if (signed.error) throw Error('Unable to open this enquiry selfie');
+      await showEnquiryImage('Enquiry selfie',signed.data.signedUrl);
+    },
     async viewPhoto(d) {
       const p = DB.get('photos', d.id); const src = await DB.getBlob(d.id);
       const res = await modal({ title: `${p.kind[0].toUpperCase() + p.kind.slice(1)} photo`, wide: true, submitLabel: 'Delete photo', danger: true, cancelLabel: 'Close',
@@ -1136,7 +1159,7 @@
       await DB.save('services', { name: f.name, price: +f.price || 0, category: 'Other', durationMins: 0, active: true, sort: DB.list('services').length });
       form.reset(); rerender();
     },
-    async me(f) { const r = await Auth.updateMe(f); toast(r === 'confirm-email' ? 'Check your new email to confirm the change' : 'Account updated'); rerender(); },
+    async me(f) { const r = await Auth.updateMe(f); toast(r === 'confirm-email' ? 'Email change pending. Check both inboxes for confirmation links.' : 'Account updated'); rerender(); },
     async password(f, form) { await Auth.changePassword(f.old, f.next); form.reset(); toast('Password updated'); }
   };
 
@@ -1180,23 +1203,107 @@
   };
 
   /* ================= GLOBAL LISTENERS ================= */
+  function initialiseEditCards() {
+    const formNames = ['details', 'calendarBlock', 'serviceNotes', 'client', 'profile', 'me', 'password', 'note'];
+    for (const form of $app().querySelectorAll(formNames.map(name => `form[data-form="${name}"]`).join(','))) {
+      const controls = [...form.querySelectorAll('input:not([type=hidden]),select,textarea,button[type=submit],button:not([type])')];
+      const card = form.closest('.card');
+      lockEditCard(form, controls, () => form.reset(), card?.querySelectorAll('form').length === 1 ? card : form);
+    }
+    for (const section of new Set([...$app().querySelectorAll('[data-change="line"],[data-change="money"],[data-change="svc"]')].map(el => el.closest('.card')).filter(Boolean))) {
+      const controls = [...section.querySelectorAll('[data-change="line"],[data-change="money"],[data-change="svc"],[data-act="removeLine"],[data-act="deleteService"],form[data-form="addService"],form[data-form="addLine"],form[data-form="addQuoteExtra"]')];
+      lockEditCard(section, controls, () => controls.forEach(restoreInlineEdit));
+    }
+  }
+
+  function lockEditCard(container, controls, reset, footerHost = container) {
+    const snapshot = controls.map(control => {
+      control.classList.add('edit-card-control');
+      const value = document.createElement('span');
+      value.className = 'edit-card-value';
+      control.before(value);
+      return {control, value, disabled:control.disabled, hidden:control.hidden};
+    });
+    const footer = document.createElement('div');
+    footer.className = 'edit-card-footer';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn sm';
+    footer.append(button);
+    footerHost.append(footer);
+    let editing = false;
+    function refresh() {
+      for (const {control, value, disabled, hidden} of snapshot) {
+        control.hidden = !editing || hidden;
+        if (disabled !== undefined) control.disabled = !editing || disabled;
+        value.hidden = editing || hidden || !control.matches('input:not([type=password]):not([type=file]),select,textarea');
+        if (!value.hidden) {
+          const display = control.type === 'checkbox' ? (control.checked ? 'Yes' : 'No') :
+            control.tagName === 'SELECT' ? control.selectedOptions[0]?.textContent :
+            control.type === 'time' && control.value ? fmtTime(control.value) :
+            control.type === 'date' && control.value ? fmtShort(control.value) : control.value;
+          value.textContent = display || '—';
+        }
+      }
+      button.textContent = editing ? (container.tagName === 'FORM' ? 'Cancel' : 'Done editing') : 'Edit';
+      button.setAttribute('aria-expanded',String(editing));
+    }
+    button.onclick = () => {
+      if (editing) reset();
+      editing = !editing;
+      refresh();
+      if (editing) snapshot.find(({control}) => control.matches('input,select,textarea') && !control.disabled)?.control.focus();
+    };
+    refresh();
+  }
+
+  const adjustmentForms = new Set(['details', 'calendarBlock', 'serviceNotes', 'addQuoteExtra', 'addLine',
+    'note', 'client', 'profile', 'addService', 'me', 'password']);
+  const adjustmentActions = new Set(['removeLine', 'personStatus', 'personShow', 'removeClientPhoto']);
+  const confirmAdjustments = () => confirmBox('Save these changes to the CRM?', 'Confirm adjustments');
+
+  function restoreInlineEdit(el) {
+    if (el.type === 'file') el.value = '';
+    else if (el.type === 'checkbox') el.checked = el.defaultChecked;
+    else if ('defaultValue' in el) el.value = el.defaultValue;
+  }
   document.addEventListener('click', async e => {
     const el = e.target.closest('[data-act]');
     if (!el || el.closest('.modal-wrap')) return;
     const fn = Actions[el.dataset.act]; if (!fn) return;
     e.preventDefault();
-    try { await fn(el.dataset, el); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+    try {
+      if (adjustmentActions.has(el.dataset.act) && !await confirmAdjustments()) return;
+      await fn(el.dataset, el);
+    } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
   });
   document.addEventListener('submit', async e => {
     const f = e.target.closest('form[data-form]'); if (!f) return;
     e.preventDefault();
     const btn = f.querySelector('button:not([type=button])'); if (btn) btn.disabled = true;
-    try { await Forms[f.dataset.form](UI.formToObj(f), f); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+    try {
+      const fields = UI.formToObj(f);
+      if (adjustmentForms.has(f.dataset.form) && !await confirmAdjustments()) return;
+      await Forms[f.dataset.form](fields, f);
+    } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
     finally { if (btn && btn.isConnected) btn.disabled = false; }
   });
   document.addEventListener('change', async e => {
     const el = e.target; if (el.closest('.modal-wrap') || !el.dataset.change) return;
-    try { await Changes[el.dataset.change](el); } catch (err) { console.error(err); toast(err.message || String(err), 'error'); }
+    try {
+      if (el.dataset.change !== 'importData' && !await confirmAdjustments()) {
+        restoreInlineEdit(el);
+        return;
+      }
+      await Changes[el.dataset.change](el);
+      if (el.type === 'checkbox') el.defaultChecked = el.checked;
+      else if (el.type !== 'file') el.defaultValue = el.value;
+      else el.value = '';
+    } catch (err) {
+      restoreInlineEdit(el);
+      console.error(err);
+      toast(err.message || String(err), 'error');
+    }
   });
   document.addEventListener('input', e => {
     const el = e.target; if (!el.dataset.filter) return;

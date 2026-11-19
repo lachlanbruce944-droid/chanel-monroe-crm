@@ -11,3 +11,10 @@ test('completed call saves notes and moves to initial quote',async()=>{const f=f
 test('additional costs enter balance and final invoice after deposit deduction',async()=>{const f=fixture({stage:'invoice',additionalCosts:25,additionalCostsReason:'Extra lashes'});f.rows.payments.push({bookingId:'b',type:'deposit',amount:60});assert.equal(f.W.totals(f.b).balance,165);const inv=await f.W.ensureInvoice(f.b,'final');assert.equal(inv.total,165);assert.ok(inv.items.some(x=>x.desc==='Extra lashes'&&x.price===25))});
 test('issued final invoices prevent additional cost changes',async()=>{const f=fixture({callLoggedAt:'2020-01-01'});f.rows.invoices.push({bookingId:'b',type:'final',stripeInvoiceId:'in_1'});await assert.rejects(f.W.saveBooking(f.b,{additionalCosts:25,additionalCostsReason:'Extra'}),/Reconcile/)});
 test('follow-up uses paid Stripe invoice and is required before completion',async()=>{const f=fixture({stage:'review'});f.rows.invoices.push({bookingId:'b',type:'final',stripeUrl:'https://invoice.stripe.com/i/test'});f.rows.payments.push({bookingId:'b',amount:200,type:'final'});f.rows.reviews.push({bookingId:'b'});const msg=f.W.renderTemplate('service_followup',f.b);assert.match(msg.body,/paid in full/);assert.match(msg.body,/https:\/\/invoice.stripe.com/);assert.equal(f.W.checkNext(f.b).ok,false);await f.W.logMessage(f.b,'service_followup',msg.subject,'email');assert.equal(f.W.checkNext(f.b).ok,true)});
+test('completing a call with blank notes saves an edited ready-by time and preserves existing notes', async () => {
+  const f = fixture({stage:'call',callAt:'2020-01-01T01:00Z',consultation:{provider:'crm',status:'confirmed'},readyBy:'13:00',callNotes:'Existing notes'});
+  await f.W.logCall(f.b, '  ', {readyBy:'14:30'});
+  assert.equal(f.rows.bookings[0].readyBy,'14:30');
+  assert.equal(f.rows.bookings[0].callNotes,'Existing notes');
+  assert.equal(f.rows.bookings[0].stage,'updates');
+});

@@ -78,8 +78,21 @@
   ];
 
   /* ---------- settings ---------- */
-  const profile = () => ({ ...DEFAULT_PROFILE, ...(DB.setting('profile', {}) || {}) });
-  const saveProfile = patch => DB.setSetting('profile', { ...profile(), ...patch });
+  function bookingLink(value) {
+    try {
+      const url = new URL(value);
+      if (['http:', 'https:'].includes(url.protocol) && !/(^|\.)cal\.com\.?$/i.test(url.hostname)) return url.href;
+    } catch {}
+    return DEFAULT_PROFILE.bookingLink;
+  }
+  const profile = () => {
+    const saved = { ...DEFAULT_PROFILE, ...(DB.setting('profile', {}) || {}) };
+    return { ...saved, bookingLink:bookingLink(saved.bookingLink) };
+  };
+  const saveProfile = patch => {
+    const settings = { ...profile(), ...patch };
+    return DB.setSetting('profile', { ...settings, bookingLink:bookingLink(settings.bookingLink) });
+  };
   const services = (activeOnly = false) => DB.list('services', s => !activeOnly || s.active !== false)
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name));
 
@@ -390,13 +403,15 @@
 
   async function logCall(b, notes, updates = {}) {
     const cur = fresh(b);
-    if (!notes?.trim()) throw new Error('Add call notes');
+    const callNote = notes?.trim();
     if (['enquiry', 'call'].includes(cur.stage) && (cur.consultation?.provider !== 'crm' || cur.consultation?.status !== 'confirmed')) throw new Error('Approve the phone consultation first');
     if (['enquiry', 'call'].includes(cur.stage) && new Date(cur.callAt) > new Date()) throw new Error('The scheduled call has not started yet');
-    const patch = { callNotes: [cur.callNotes, notes].filter(Boolean).join('\n\n'), callLoggedAt: new Date().toISOString() };
-    for (const k of ['eventDate', 'readyBy', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
+    const patch = { callLoggedAt: cur.callLoggedAt || new Date().toISOString() };
+    if (callNote) patch.callNotes = [cur.callNotes, callNote].filter(Boolean).join('\n\n');
+    if (updates.readyBy !== undefined) patch.readyBy = updates.readyBy;
+    for (const k of ['eventDate', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
     b = await DB.save('bookings', { ...cur, ...patch });
-    await log(b, 'call', `Call notes: ${notes}`);
+    await log(b, 'call', callNote ? `Call notes: ${callNote}` : 'Call details saved');
     const r = DB.find('reminders', r => r.bookingId === b.id && r.kind === 'call' && r.status === 'pending');
     if (r) await completeReminder(r.id);
     if (b.stage === 'enquiry' || b.stage === 'call') b = await setStage(b, 'updates');
