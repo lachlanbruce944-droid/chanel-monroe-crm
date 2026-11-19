@@ -292,7 +292,7 @@
           </section>
 
           <section class="card" id="quote">
-            <div class="card-head"><h2>Quote</h2>${t.total ? `<strong>${money(t.total)}</strong>` : ''}</div>
+            <div class="card-head"><h2>Service Quote</h2>${t.total ? `<strong>${money(t.total)}</strong>` : ''}</div>
             <table class="lines">
               <thead><tr><th>Service</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
               <tbody>${(b.lines || []).map((l, i) => `<tr>
@@ -304,6 +304,12 @@
               </tbody>
             </table>
             <form data-form="addLine" data-id="${b.id}" class="row gap add-line"><select name="serviceId" required><option value="">Add a service…</option>${svcOptions}</select><input type="number" name="qty" min="1" value="1" class="qty"><button class="btn sm">${icon('plus')} Add</button></form>
+            ${b.callLoggedAt ? Object.entries(window.QuoteExtras.catalog).map(([phase, extras]) => `<form data-form="addQuoteExtra" data-id="${esc(b.id)}" data-phase="${phase}" class="row gap add-line">
+              <label>${phase === 'before' ? 'Before appointment' : 'After appointment'}<select name="extra" required><option value="">Choose an extra…</option>${Object.entries(extras).map(([key, label]) => `<option value="${key}">${esc(label)}</option>`).join('')}</select></label>
+              <label>Qty<input name="qty" type="number" class="qty" min="1" value="1" required></label>
+              <label>Unit price (AUD)<input name="price" type="number" min="0" step="0.01" required></label>
+              <button class="btn sm" type="submit">${icon('plus')} Add extra</button>
+            </form>`).join('') : '<p class="muted">Complete the phone consultation to add before- and after-appointment extras.</p>'}
             <div class="totals">
               <label>Travel fee<input type="number" min="0" step="0.01" value="${esc(b.travelFee)}" data-change="money" data-id="${b.id}" data-field="travelFee" placeholder="0"></label>
               <label>Discount<input type="number" min="0" step="0.01" value="${esc(b.discount)}" data-change="money" data-id="${b.id}" data-field="discount" placeholder="0"></label>
@@ -873,7 +879,7 @@
     },
     async retryConsultationEmail(d) { await W.retryConsultationEmail(DB.get('bookings', d.id)); toast('Consultation email sent'); rerender(); },
     async scheduleCall(d) {
-      const b = DB.get('bookings', d.id); const def = d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : b.callAt || W.daysFromNow(1, '17:30');
+      const b = DB.get('bookings', d.id); const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
       await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
         body: `<label>Date & time · Brisbane<input type="datetime-local" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
@@ -1104,6 +1110,13 @@
       await W.saveBooking(b, { eventType: f.eventType, eventDate: f.eventDate, readyBy: f.readyBy, startTime: f.startTime, location: f.location,
         partySize: +f.partySize || 1, answers: { ...(b.answers || {}), trial: f.trial, look: f.look } }, 'Event details updated');
       toast('Details saved'); rerender();
+    },
+    async addQuoteExtra(f, form) {
+      const b = DB.get('bookings', form.dataset.id);
+      if (!b.callLoggedAt) throw Error('Complete the phone consultation before adding extras');
+      const line = window.QuoteExtras.line(form.dataset.phase, f.extra, f.qty, f.price);
+      await W.saveBooking(b, { lines: [...(b.lines || []), line] }, `Added ${line.name} to quote`);
+      rerender();
     },
     async addLine(f, form) {
       const b = DB.get('bookings', form.dataset.id); const s = DB.get('services', f.serviceId); if (!s) return;
