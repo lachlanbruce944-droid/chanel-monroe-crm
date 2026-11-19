@@ -449,6 +449,14 @@
   }
 
   /* ================= CALENDAR ================= */
+  const calendarStatus = {
+    'makeup-hold': 'Makeup hold',
+    'makeup-booked': 'Makeup booked',
+    'phone-pending': 'Call pending',
+    'phone-approved': 'Call approved',
+    reminder: 'Reminder'
+  };
+
   function viewCalendar() {
     const td = today();
     if (!state.calMonth) state.calMonth = td.slice(0, 7);
@@ -459,21 +467,36 @@
     const push = (day, it) => { (items[day] = items[day] || []).push(it); };
     DB.list('bookings', b => b.status !== 'lost').forEach(b => {
       const c = W.clientOf(b);
-      if (b.eventDate) push(b.eventDate, { kind: 'event', cls: `s-${b.stage}`, tentative: W.idx(b.stage) < W.idx('booked'), text: W.clientName(c), sub: `${b.eventType || 'Event'}${b.readyBy ? ' · ready ' + fmtTime(b.readyBy) : ''}`, href: `#/booking/${b.id}`, time: b.readyBy || '' });
-      if (b.callAt && !b.callLoggedAt) push(Connectors.brisbaneInput(b.callAt).slice(0,10), { kind: 'call', cls: b.consultation?.status === 'confirmed' ? 'call' : 'call tent', text: `${b.consultation?.status === 'confirmed' && b.consultation?.provider === 'crm' ? 'Confirmed call' : 'Pending approval'} ${W.clientName(c)}`, sub: fmtTime(Connectors.brisbaneInput(b.callAt).slice(11)) + ' AEST', href: `#/booking/${b.id}`, time: Connectors.brisbaneInput(b.callAt).slice(11) });
+      const href = `#/booking/${b.id}`;
+      const name = W.clientName(c);
+      if (b.eventDate) {
+        const time = b.readyBy || b.startTime;
+        const status = W.idx(b.stage) < W.idx('booked') ? 'makeup-hold' : 'makeup-booked';
+        const timing = time ? ` · ${b.readyBy ? 'Ready by' : 'Starts'} ${fmtTime(time)}` : '';
+        push(b.eventDate, { status, name, sub: (b.eventType || 'Makeup') + timing, href, time });
+      }
+      if (b.callAt && !b.callLoggedAt) {
+        const call = Connectors.brisbaneInput(b.callAt);
+        const time = call.slice(11);
+        const approved = b.consultation?.provider === 'crm' && b.consultation?.status === 'confirmed';
+        push(call.slice(0,10), { status: approved ? 'phone-approved' : 'phone-pending', name,
+          sub: fmtTime(time) + ' AEST', href, time });
+      }
     });
-    DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day')).forEach(r => push(ymd(new Date(r.dueAt)), { kind: 'rem', cls: 'rem', text: r.title, sub: 'Reminder', href: r.bookingId ? `#/booking/${r.bookingId}` : '#/', time: '' }));
+    DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day'))
+      .forEach(r => push(ymd(new Date(r.dueAt)), { status:'reminder', name:r.title, href:r.bookingId ? `#/booking/${r.bookingId}` : '#/' }));
+    const chronological = (a,b) => (a.time || '99').localeCompare(b.time || '99');
     const cells = [];
     for (let i = 0; i < 42; i++) {
       const d = addDays(start, i); const key = ymd(d);
-      const its = (items[key] || []).sort((a, b) => (a.kind === 'event' ? 0 : 1) - (b.kind === 'event' ? 0 : 1));
-      cells.push(`<button class="day ${d.getMonth() !== m - 1 ? 'out' : ''} ${key === td ? 'today' : ''} ${key === state.calSelected ? 'sel' : ''}" data-act="calDay" data-day="${key}">
+      const its = (items[key] || []).sort(chronological);
+      cells.push(`<button class="day ${d.getMonth() !== m - 1 ? 'out' : ''} ${key === td ? 'today' : ''} ${key === state.calSelected ? 'sel' : ''}" data-act="calDay" data-day="${key}" aria-pressed="${key === state.calSelected}" aria-label="${esc([fmtDate(key), ...its.map(it => calendarStatus[it.status] + ' · ' + it.name)].join(', '))}">
         <span class="n">${d.getDate()}</span>
-        <div class="evs">${its.slice(0, 3).map(it => `<i class="ev ${it.cls} ${it.tentative ? 'tent' : ''}">${esc(it.text)}</i>`).join('')}${its.length > 3 ? `<i class="more">+${its.length - 3}</i>` : ''}</div>
-        ${its.length ? `<span class="dots">${its.slice(0, 4).map(it => `<b class="${it.cls}"></b>`).join('')}</span>` : ''}
+        <div class="evs">${its.slice(0, 3).map(it => `<span class="cal-entry cal-${it.status}" title="${esc(calendarStatus[it.status] + ' · ' + it.name)}"><strong>${calendarStatus[it.status]}</strong><small>${esc(it.name)}</small></span>`).join('')}${its.length > 3 ? `<i class="more">+${its.length - 3}</i>` : ''}</div>
+        ${its.length ? `<span class="dots">${its.slice(0, 4).map(it => `<b class="cal-${it.status}"></b>`).join('')}</span>` : ''}
       </button>`);
     }
-    const sel = (items[state.calSelected] || []).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+    const sel = (items[state.calSelected] || []).sort(chronological);
     return {
       title: first.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }),
       actions: `<button class="btn primary sm" data-act="calendarConsultation">Schedule phone call</button><button class="icon-btn" data-act="calNav" data-arg="-1">${icon('chevL')}</button><button class="btn ghost sm" data-act="calNav" data-arg="0">Today</button><button class="icon-btn" data-act="calNav" data-arg="1">${icon('chevR')}</button>`,
@@ -481,10 +504,10 @@
           <div class="cal-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
           <div class="cal-grid">${cells.join('')}</div>
         </section>
-        <div class="legend"><span><b class="s-booked"></b>Booked</span><span><b class="s-enquiry tent"></b>Enquiry (not secured)</span><span><b class="call"></b>Approved phone call</span><span><b class="call tent"></b>Phone call pending approval</span><span><b class="rem"></b>Reminder</span></div>
+        <div class="legend cal-legend" aria-label="Calendar statuses">${Object.entries(calendarStatus).map(([status,label]) => `<span class="cal-pill cal-${status}">${label}</span>`).join('')}</div>
         <section class="card">
           <div class="card-head"><h2>${fmtDate(state.calSelected)}</h2><a class="btn sm" href="#/new?date=${state.calSelected}" data-act="newOnDate" data-day="${state.calSelected}">${icon('plus')} Booking</a></div>
-          ${sel.length ? `<ul class="list">${sel.map(it => `<li><a class="list-row" href="${it.href}"><span class="dot ${it.cls}"></span><div class="grow"><strong>${esc(it.text)}</strong><small>${esc(it.sub)}</small></div></a></li>`).join('')}</ul>` : empty('Nothing on this day — it’s free.')}
+          ${sel.length ? `<ul class="list">${sel.map(it => `<li><a class="list-row cal-agenda" href="${it.href}"><div class="grow"><strong>${esc(it.name)}</strong>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</div><span class="cal-pill cal-${it.status}">${calendarStatus[it.status]}</span></a></li>`).join('')}</ul>` : empty('Nothing on this day — it’s free.')}
         </section>`
     };
   }
