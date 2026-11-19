@@ -262,25 +262,30 @@ a.list-row:hover { background: #fdf8f6; }
 /* ---------- calendar ---------- */
 .cal-head, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .cal-head span { text-align: center; font-size: 11px; color: var(--muted); padding: 8px 0; border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .06em; }
-.day { min-height: 58px; border: 0; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); background: var(--surface); padding: 5px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: 13px var(--sans); color: var(--ink); overflow: hidden; }
-.day:nth-child(7n) { border-right: 0; }
-.day.out { background: #faf6f3; color: #c3b8b4; }
-.day .n { font-weight: 600; font-size: 12.5px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
-.day.today .n { background: var(--accent); color: #fff; }
-.day.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+.cal-grid { gap: 3px; padding: 3px; }
+.day { min-width: 0; min-height: 58px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); padding: 5px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: 13px var(--sans); color: var(--ink); overflow: hidden; transition: background-color .15s; }
+.day.out { background: #faf6f3; color: #887773; }
+.day .n { font-weight: 650; font-size: 13px; padding: 2px 3px; }
+.day.today .n { color: var(--accent); }
+@media (hover: hover) { .day:hover { background: #f5ece7; } }
+.day.sel { background: #eee2da; border-color: #aa8a7d; }
+.day:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .evs { display: none; flex-direction: column; gap: 2px; min-width: 0; }
-.ev { font-style: normal; font-size: 11px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--c, var(--gold)) 18%, white); color: color-mix(in srgb, var(--c, var(--gold)) 75%, black); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--c, var(--gold)); }
-.ev.call { --c: var(--s-call); } .ev.rem { --c: var(--gold); }
-.ev.tent { background: #fff; border-left-style: dashed; }
-.more { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.cal-makeup-hold { --cal-bg: #fff0d1; --cal-fg: #663907; --cal-mark: #ab660b; }
+.cal-makeup-booked { --cal-bg: #daf2e6; --cal-fg: #134e38; --cal-mark: #21865d; }
+.cal-phone-pending { --cal-bg: #f9e5ef; --cal-fg: #72254e; --cal-mark: #ae487d; }
+.cal-phone-approved { --cal-bg: #e2eaff; --cal-fg: #253b81; --cal-mark: #4c69ca; }
+.cal-reminder { --cal-bg: #ece8f1; --cal-fg: #51405f; --cal-mark: #80708e; }
+.cal-entry, .cal-pill { background: var(--cal-bg); color: var(--cal-fg); border-radius: 6px; }
+.cal-entry { display: block; border-left: 3px solid var(--cal-mark); padding: 2px 5px; line-height: 1.2; }
+.cal-entry strong, .cal-entry small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.cal-pill { display: inline-block; padding: 4px 8px; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.cal-agenda { flex-wrap: wrap; }
+.more { font-size: 10px; color: var(--muted); }
 .dots { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
-.dots b { display: block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--c, var(--gold)); }
-.dots b.call { background: var(--s-call); } .dots b.rem { background: var(--gold); }
+.dots b { display: block; flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--cal-mark); }
 @media (min-width: 760px) { .day { min-height: 104px; } .evs { display: flex; } .dots { display: none; } }
-.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); margin: -4px 0 16px; }
-.legend span { display: flex; align-items: center; gap: 6px; }
-.legend b { width: 12px; height: 12px; border-radius: 3px; background: var(--c, var(--gold)); }
-.legend b.tent { background: #fff; border: 1.5px dashed var(--s-enquiry); } .legend b.call { background: var(--s-call); }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 16px; }
 
 /* ---------- tables & invoice ---------- */
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
