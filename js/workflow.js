@@ -207,7 +207,6 @@
         await upsertReminder(b, { kind: 'deposit_chase', title: `Chase deposit — ${name}`, dueAt: daysFromNow(+p.depositDueDays || 3), templateKey: 'deposit_reminder' });
         break;
       case 'booked':
-        if(window.Connectors && b.calendarStart && b.calendarEnd) await window.Connectors.request('sync-booking',{bookingId:b.id});
         await skipKinds(b, ['deposit_chase', 'reply', 'call']);
         await refreshInvoices(b);
         await generateEventReminders(b);
@@ -363,7 +362,10 @@
 
   async function consultationAction(b, action, details = {}) {
     const { data, error } = await DB.client.functions.invoke('consultation-manage', { body: { bookingId: fresh(b).id, action, ...details } });
-    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Consultation update failed');
+    if (error || !data?.ok) {
+      const detail = await error?.context?.json?.().catch(() => null);
+      throw new Error(data?.error || detail?.error || error?.message || 'Consultation update failed');
+    }
     await DB.refresh();
     if (data.calendarError) UI.toast('Appointment saved; Apple Calendar needs a retry. ' + data.calendarError, 'error');
     if (data.emailError) throw new Error('Appointment saved, but email was not sent. Use Retry consultation email. ' + data.emailError);

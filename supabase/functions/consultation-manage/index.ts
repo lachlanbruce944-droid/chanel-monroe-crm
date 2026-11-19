@@ -30,7 +30,7 @@ Deno.serve(async req=>{
   let calendarError='';
   try{
    if(input.action==='approve')await apple('sync-consult');
-   if(input.action==='schedule')await apple('remove-consult');
+   if(input.action==='schedule')await apple('sync-consult');
   }catch(e){calendarError=e instanceof Error?e.message:'Apple Calendar sync failed';}
   const [b]=await db(`crm_bookings?id=eq.${input.bookingId}&select=id,client_id,extra`),c=b.extra?.consultation;
   if(input.action==='retry-email'&&c?.status==='confirmed')try{await apple('sync-consult')}catch(e){calendarError=e instanceof Error?e.message:'Apple Calendar sync failed';}
@@ -43,7 +43,7 @@ Deno.serve(async req=>{
     const token=Deno.env.get('RESEND_API_KEY');if(!token||!client?.email)throw Error('Email delivery requires a client email and configured mail service');
     const when=new Date(message.start_at).toLocaleString('en-AU',{timeZone:'Australia/Brisbane',dateStyle:'full',timeStyle:'short'}),confirmed=message.kind==='confirmed';
     const subject=confirmed?'Your phone consultation is confirmed':'Your phone consultation time · pending approval';
-    const html=`<p>Hi ${esc(client.first_name||'there')},</p><h2>${subject}</h2><p>${esc(when)} · Brisbane time (AEST)</p><p>Free 15-minute phone consultation. Chanel will call ${esc(client.phone||'your supplied number')}.</p><p>${confirmed?'Chanel has approved this appointment. You do not need to confirm again.':'This time is pending Chanel’s approval. We will email your confirmed booking once approved. You do not need to confirm again.'}</p><p>This is your phone consultation; your makeup appointment is confirmed separately after your quote and deposit. Need a change? Reply to this email.</p>`;
+    const html=`<p>Hi ${esc(client.first_name||'there')},</p><h2>${subject}</h2><p>${esc(when)} · Brisbane time (AEST)</p><p>Free 15-minute phone consultation. Chanel will call ${esc(client.phone||'your supplied number')}.</p><p>${confirmed?'Chanel has approved this appointment. You do not need to confirm again.':'Chanel has proposed this time for your phone consultation. It is pending Chanel’s approval. Reply if you need a different time.'}</p><p>This is your phone consultation; your makeup appointment is confirmed separately after your quote and deposit. Need a change? Reply to this email.</p>`;
     const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Idempotency-Key':`consult-${message.id}`},body:JSON.stringify({from:Deno.env.get('FROM_EMAIL')||'Chanel Monroe Makeup <enquiries@chanelmonroe.net>',to:[client.email],reply_to:Deno.env.get('BUSINESS_EMAIL')||'makeup@chanelmonroe.net',subject,html}),signal:AbortSignal.timeout(15000)});
     if(!sent.ok)throw Error('Mail service did not accept the message');
     await db(`crm_consultation_emails?id=eq.${message.id}`,{method:'PATCH',body:JSON.stringify({sent_at:new Date().toISOString()})});

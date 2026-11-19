@@ -43,14 +43,69 @@ export async function available(cfg:NonNullable<ReturnType<typeof config>>,start
  const elements=[...content.matchAll(/<(?:\w+:)?calendar-data(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?calendar-data>/g)];
  if(!elements.length&&/<(?:\w+:)?response[\s>]/.test(content))throw Error('Apple did not return readable calendar data');
  for(const element of elements)for(const e of dates(decode(element[1]))){
-  if(e.uid===uid)continue;
+  if(e.uid===uid||/^crm-[0-9a-f-]{36}-(phone|makeup)@chanelmonroe\.net$/i.test(e.uid||''))continue;
   if(e.start.allDay){throw Error('Apple Calendar has an all-day appointment at this time');}
   else if(+new Date(e.start.iso!)<+new Date(end)&&+new Date(e.end.iso!)>+new Date(start))throw Error('This time conflicts with an Apple Calendar appointment');
  }
 }
+type Booking = { id: string; status: string; stage: string; event_date?: string; start_time?: string;
+ ready_by?: string; call_at?: string; call_logged_at?: string; extra?: { calendarStart?: string; consultation?: { status?: string } } };
+type AppleConfig = NonNullable<ReturnType<typeof config>>;
+function makeupStart(b: Booking) {
+ if(b.extra?.calendarStart)return b.extra.calendarStart;
+ const time=b.start_time||b.ready_by;
+ if(!b.event_date||!time)return null;
+ const millis=Date.parse(`${b.event_date}T${time}+10:00`);
+ return new Date(millis-(b.start_time?0:180*60000)).toISOString();
+}
+async function syncEvent(cfg: AppleConfig,b: Booking,action: string){
+  const call=action.includes('consult'),uid=`crm-${b.id}-${call?'phone':'makeup'}@chanelmonroe.net`,url=cfg.url+encodeURIComponent(uid)+'.ics';
+  if(action==='remove-block'||action==='remove-consult'){const found=await dav(cfg,url,'GET');if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');await dav(cfg,url,'DELETE',undefined,{'If-Match':found.headers.get('etag')||'*'})}return {ok:true};}
+  const start=call?b.call_at:makeupStart(b);
+  const end=start?new Date(+new Date(start)+(call?15:240)*60000).toISOString():null;
+  if(!start||!end||!Number.isFinite(+new Date(start)))throw Error('Set a CRM calendar start time first');
+  const pending=call?b.extra?.consultation?.status!=='confirmed':!['booked','day','invoice','review','done'].includes(b.stage);
+  if(!pending||action.startsWith('check-'))await available(cfg,start,end,uid);
+  if(action.startsWith('check-'))return {ok:true};
+  if(b.status==='lost')throw Error('Reopen the enquiry before syncing');
+  const found=await dav(cfg,url,'GET'),headers:Record<string,string>={};
+  if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');headers['If-Match']=found.headers.get('etag')||'*';}else headers['If-None-Match']='*';
+  const content=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Chanel Monroe//CRM//EN','BEGIN:VEVENT',`UID:${uid}`,`DTSTAMP:${stamp(new Date().toISOString())}`,`DTSTART:${stamp(start)}`,`DTEND:${stamp(end)}`,`SUMMARY:Chanel Monroe - ${call?'phone consultation':'makeup + 1 hr buffer'}${pending?' (pending)':''}`,pending?'STATUS:TENTATIVE':'STATUS:CONFIRMED','TRANSP:OPAQUE','END:VEVENT','END:VCALENDAR',''].join('\r\n');
+  const saved=await dav(cfg,url,'PUT',content,headers);if(!saved.ok)throw Error('Apple Calendar did not save the appointment');
+  return {ok:true,synced:true};
+}
+async function syncQueue(cfg: AppleConfig){
+ const rows=await db('crm_apple_calendar_queue?next_attempt=lte.'+encodeURIComponent(new Date().toISOString())+'&order=next_attempt&limit=3');
+ for(const row of rows){
+  const ref=`crm_apple_calendar_queue?booking_id=eq.${row.booking_id}&version=eq.${row.version}`;
+  try{
+   const [record]=await db(`crm_bookings?id=eq.${row.booking_id}&select=*`);
+   const b: Booking=record||{id:row.booking_id,status:'lost',stage:''};
+   const actions = [b.status!=='lost'&&makeupStart(b)?'sync-booking':'remove-block'];
+   // Keep completed phone events in calendar history.
+   if(b.status==='lost'||!b.call_at)actions.push('remove-consult');
+   else if(!b.call_logged_at)actions.push('sync-consult');
+   const results=await Promise.allSettled(actions.map(action=>syncEvent(cfg,b,action)));
+   const failure=results.find(result=>result.status==='rejected');
+   if(failure?.status==='rejected')throw failure.reason;
+   await db(ref,{method:'DELETE'});
+  }catch(e){
+   await db(ref,{method:'PATCH',body:JSON.stringify({
+    next_attempt:new Date(Date.now()+5*60000).toISOString(),last_error:e instanceof Error?e.message:'Sync failed'
+   })});
+  }
+ }
+ return {ok:true,processed:rows.length};
+}
 Deno.serve(async req=>{
  if(req.method==='OPTIONS')return new Response(null,{headers:CORS});if(req.method!=='POST')return reply({error:'POST only'},405);
  try{
+  const workerKey=req.headers.get('x-crm-calendar-worker');
+  if(workerKey){
+   if(workerKey.length!==64 || !await db('rpc/crm_apple_worker_authorized',{method:'POST',body:JSON.stringify({candidate:workerKey})}))return reply({error:'Invalid worker credentials'},403);
+   const cfg=config();
+   return reply(cfg?await syncQueue(cfg):{ok:true,skipped:true});
+  }
   const bearer=req.headers.get('authorization')||'';if(!bearer.startsWith('Bearer '))return reply({error:'Sign in to the CRM'},401);
   const auth=await fetch(`${SB}/auth/v1/user`,{headers:{apikey:KEY,Authorization:bearer},signal:AbortSignal.timeout(10000)});if(!auth.ok)return reply({error:'Sign in to the CRM'},401);
   const user=await auth.json(),staff=await db(`crm_staff?user_id=eq.${encodeURIComponent(user.id)}&select=role`);if(staff[0]?.role!=='owner')return reply({error:'Only the owner manages Apple Calendar'},403);
@@ -63,18 +118,6 @@ Deno.serve(async req=>{
   if(!['check-consult','check-booking','sync-consult','sync-booking','remove-block','remove-consult'].includes(input.action)||!/^[0-9a-f-]{36}$/i.test(input.bookingId||''))return reply({error:'Invalid calendar action'},400);
   if(!cfg)return reply({ok:true,skipped:true,reason:'Apple Calendar is not connected'});
   const [b]=await db(`crm_bookings?id=eq.${input.bookingId}&select=*`);if(!b)throw Error('Booking not found');
-  const call=input.action.includes('consult'),uid=`crm-${b.id}-${call?'phone':'makeup'}@chanelmonroe.net`,url=cfg.url+encodeURIComponent(uid)+'.ics';
-  if(input.action==='remove-block'||input.action==='remove-consult'){const found=await dav(cfg,url,'GET');if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');await dav(cfg,url,'DELETE',undefined,{'If-Match':found.headers.get('etag')||'*'})}return reply({ok:true});}
-  const start=call?b.call_at:b.extra?.calendarStart;
-  const end=call&&start?new Date(+new Date(start)+15*60000).toISOString():b.extra?.calendarEnd;
-  if(!start||!end||!Number.isFinite(+new Date(start))||+new Date(end)<=+new Date(start))throw Error('Set exact CRM calendar start and finish times first');
-  await available(cfg,start,end,uid);if(input.action==='check-consult'||input.action==='check-booking')return reply({ok:true});
-  if(call&&(b.extra?.consultation?.provider!=='crm'||b.extra?.consultation?.status!=='confirmed'))throw Error('Chanel must approve the consultation before syncing it');
-  if(b.status==='lost')throw Error('Reopen the enquiry before syncing');
-  const found=await dav(cfg,url,'GET'),headers:Record<string,string>={};
-  if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');headers['If-Match']=found.headers.get('etag')||'*';}else headers['If-None-Match']='*';
-  const content=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Chanel Monroe//CRM//EN','BEGIN:VEVENT',`UID:${uid}`,`DTSTAMP:${stamp(new Date().toISOString())}`,`DTSTART:${stamp(start)}`,`DTEND:${stamp(end)}`,`SUMMARY:Chanel Monroe - ${call?'phone consultation':'makeup booking'}`,'STATUS:CONFIRMED','TRANSP:OPAQUE','END:VEVENT','END:VCALENDAR',''].join('\r\n');
-  const saved=await dav(cfg,url,'PUT',content,headers);if(!saved.ok)throw Error('Apple Calendar did not save the appointment');
-  return reply({ok:true,synced:true});
+  return reply(await syncEvent(cfg,b,input.action));
  }catch(e){return reply({error:e instanceof Error?e.message:'Apple Calendar unavailable'},409);}
 });
