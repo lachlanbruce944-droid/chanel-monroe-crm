@@ -434,3 +434,15 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 .edit-card-value { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: inherit; font-weight: 500; }
 .edit-card-value[hidden], .edit-card-control[hidden] { display: none !important; }
 .ref-grid button { width: 100%; padding: 0; border: 0; cursor: zoom-in; }
+
+.developer-mode-indicator {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px;
+  border: 0; border-radius: 8px; background: #fff0f0; color: #871a29; font: inherit;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.developer-mode-indicator span {
+  width: 9px; height: 9px; border-radius: 50%; background: #d51c33;
+  animation: developer-light 1.5s ease-in-out infinite;
+}
+@keyframes developer-light { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .developer-mode-indicator span { animation: none; } }
