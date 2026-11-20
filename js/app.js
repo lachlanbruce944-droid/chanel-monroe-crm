@@ -192,8 +192,8 @@
 
   /* ================= BOOKING DETAIL ================= */
   const STAGE_ACTIONS = {
-    enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary'], ['retryConsultationEmail', '', 'Retry consultation email', '']],
-    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['retryConsultationEmail', '', 'Retry consultation email', ''], ['logCall', '', 'Complete call & save details', 'primary']],
+    enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary']],
+    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['logCall', '', 'Complete call & save details', 'primary']],
     updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Review quote & deposit', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
@@ -947,7 +947,6 @@
         onSubmit:f => f.bookingId });
       if(picked) await Actions.scheduleCall({id:picked,day:state.calSelected});
     },
-    async retryConsultationEmail(d) { await W.retryConsultationEmail(DB.get('bookings', d.id)); toast('Consultation email sent'); rerender(); },
     async scheduleCall(d) {
       const b = DB.get('bookings', d.id); const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
       await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
