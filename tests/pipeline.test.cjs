@@ -35,3 +35,14 @@ test('developer mode skips consult and event waits while preserving approval',as
  booking.W.setDeveloperMode(false);
  assert.equal(booking.W.checkNext(booking.b).ok,false);
 });
+test('archiving stores a restorable record and preserves related data', async () => {
+ const f = fixture();
+ f.rows.invoices.push({id:'invoice',bookingId:'b'});
+ const archived = await f.W.archiveBooking(f.b);
+ assert.equal(archived.status,'lost');
+ assert.ok(archived.archivedAt);
+ assert.equal(f.rows.invoices.length,1);
+ const restored = await f.W.restoreBooking(archived);
+ assert.equal(restored.status,'open');
+ assert.equal(restored.archivedAt,null);
+});

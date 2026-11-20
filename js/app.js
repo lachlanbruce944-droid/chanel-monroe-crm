@@ -91,7 +91,7 @@
   const avatarHtml = (p, cls) => p.avatar ? `<img class="${cls}" src="${p.avatar}" alt="">` : `<div class="${cls}">${esc((p.artistName || 'CM').split(' ').map(s => s[0]).join('').slice(0, 2))}</div>`;
 
   /* ---------------- shared bits ---------------- */
-  const stageBadge = b => b.status === 'lost' ? '<span class="badge lost">Lost</span>' : `<span class="badge s-${b.stage}">${esc(W.stage(b.stage).short)}</span>`;
+  const stageBadge = b => b.archivedAt ? '<span class="badge lost">Archived</span>' : b.status === 'lost' ? '<span class="badge lost">Lost</span>' : `<span class="badge s-${b.stage}">${esc(W.stage(b.stage).short)}</span>`;
   const daysBadge = b => {
     if (!b.eventDate) return '';
     const n = daysUntil(b.eventDate);
@@ -168,13 +168,14 @@
   function viewPipeline() {
     const all = DB.list('bookings').sort((a,b)=>(a.eventDate||'9999').localeCompare(b.eventDate||'9999'));
     const active = all.filter(b=>b.status!=='lost'&&b.stage!=='complete');
-    const matches = b => state.pipelineFilter==='active' ? b.status!=='lost'&&b.stage!=='complete' : state.pipelineFilter==='lost' ? b.status==='lost' : b.status!=='lost'&&b.stage===state.pipelineFilter;
+    const matches = b => state.pipelineFilter==='archived' ? !!b.archivedAt : !b.archivedAt && matchesUnarchived(b);
+    const matchesUnarchived = b => state.pipelineFilter==='active' ? b.status!=='lost'&&b.stage!=='complete' : state.pipelineFilter==='lost' ? b.status==='lost' : b.status!=='lost'&&b.stage===state.pipelineFilter;
     const list=all.filter(matches);
-    const filters=[['active','Active',active.length],['enquiry','New enquiries',active.filter(b=>b.stage==='enquiry').length],['deposit','Awaiting deposit',active.filter(b=>b.stage==='deposit').length],['booked','Booked',active.filter(b=>b.stage==='booked').length],['complete','Completed',all.filter(b=>b.status!=='lost'&&b.stage==='complete').length],['lost','Lost / cancelled',all.filter(b=>b.status==='lost').length]];
+    const filters=[['active','Active',active.length],['enquiry','New enquiries',active.filter(b=>b.stage==='enquiry').length],['deposit','Awaiting deposit',active.filter(b=>b.stage==='deposit').length],['booked','Booked',active.filter(b=>b.stage==='booked').length],['complete','Completed',all.filter(b=>b.status!=='lost'&&b.stage==='complete').length],['lost','Lost / cancelled',all.filter(b=>b.status==='lost'&&!b.archivedAt).length],['archived','Archived',all.filter(b=>b.archivedAt).length]];
     const rows=list.map(b=>{
       const c=W.clientOf(b),t=W.totals(b),r=DB.list('reminders',r=>r.bookingId===b.id&&r.status==='pending').sort((a,b)=>(a.dueAt||'').localeCompare(b.dueAt||''))[0];
       const overdue=r&&new Date(r.dueAt)<new Date();
-      const next=b.status==='lost'?'Closed':b.stage==='complete'?'Completed':r?.title||STAGE_ACTIONS[b.stage]?.[0]?.[2]||'Review booking';
+      const next=b.archivedAt?'Archived':b.status==='lost'?'Closed':b.stage==='complete'?'Completed':r?.title||STAGE_ACTIONS[b.stage]?.[0]?.[2]||'Review booking';
       return `<article class="enquiry-row deal" data-search="${esc([W.clientName(c),c.email,c.phone,b.eventType,b.location].join(' ').toLowerCase())}">
         <div class="enquiry-identity"><strong>${esc(W.clientName(c))}</strong><span class="muted">${esc(b.eventType||'Service to confirm')}</span><small>${esc(c.email||c.phone||'Add contact details')}</small></div>
         <div><small class="muted">Event date</small><div>${fmtShort(b.eventDate)}</div><small class="muted">${esc(b.location||'Location to confirm')}</small></div>
@@ -494,7 +495,7 @@
           sub: fmtTime(time) + ' AEST', href, time });
       }
     });
-    DB.list('reminders', r => r.status === 'pending' && r.kind !== 'call' && !r.kind.startsWith('event_day'))
+    DB.list('reminders', r => r.status === 'pending' && !DB.get('bookings',r.bookingId)?.archivedAt && r.kind !== 'call' && !r.kind.startsWith('event_day'))
       .forEach(r => push(ymd(new Date(r.dueAt)), { status:'reminder', name:r.title, href:r.bookingId ? `#/booking/${r.bookingId}` : '#/' }));
     const chronological = (a,b) => (a.time || '99').localeCompare(b.time || '99');
     const cells = [];
@@ -1045,11 +1046,12 @@
     async bookingMenu(d) {
       const b = DB.get('bookings', d.id);
       const choice = await modal({ title: 'Booking options', hideSubmit: true, cancelLabel: 'Close',
-        body: `<div class="stack">${b.status === 'lost' ? '<button type="button" class="btn" data-pick="reopen">Reopen booking</button>' : '<button type="button" class="btn" data-pick="lost">Mark as lost</button>'}
+        body: `<div class="stack">${b.archivedAt ? '<button type="button" class="btn" data-pick="restore">Restore booking</button>' : b.status === 'lost' ? '<button type="button" class="btn" data-pick="reopen">Reopen booking</button>' : '<button type="button" class="btn" data-pick="lost">Mark as lost</button>'}
           <button type="button" class="btn" data-pick="client">Open client profile</button>
-          <button type="button" class="btn danger-ghost" data-pick="delete">Delete booking</button></div>`,
+          ${b.archivedAt ? '' : '<button type="button" class="btn" data-pick="archive">Archive booking</button>'}</div>`,
         onOpen(form, close) { form.addEventListener('click', e => { const p = e.target.closest('[data-pick]'); if (p) close(p.dataset.pick); }); } });
       if (choice === 'reopen') return Actions.reopen(d);
+      if (choice === 'restore' && await confirmBox('Restore this booking to its previous status?', 'Restore booking')) { await W.restoreBooking(b); toast('Booking restored'); rerender(); }
       if (choice === 'client') return go(`#/client/${b.clientId}`);
       if (choice === 'lost') {
         await modal({ title: 'Mark as lost', submitLabel: 'Mark lost', danger: true,
@@ -1057,11 +1059,11 @@
           async onSubmit(f) { await W.markLost(b, f.reason); } });
         rerender();
       }
-      if (choice === 'delete' && await confirmBox('Delete this booking and its invoices, photos and history? This can’t be undone.', 'Delete', true)) {
-        await W.deleteBooking(b); toast('Booking deleted'); go('#/pipeline');
+      if (choice === 'archive' && await confirmBox('Archive this booking and keep its history in the database?', 'Archive booking')) {
+        await W.archiveBooking(b); state.pipelineFilter = 'archived'; toast('Booking archived'); go('#/pipeline');
       }
     },
-    async reopen(d) { await W.reopen(d.id); toast('Reopened'); rerender(); },
+    async reopen(d) { const b = DB.get('bookings', d.id); if (b.archivedAt) { await W.restoreBooking(b); toast('Booking restored'); } else { await W.reopen(b); toast('Reopened'); } rerender(); },
     async personStatus(d) {
       const x = DB.get('people', d.id); if (!x) return;
       await DB.save('people', { ...x, status: d.arg, showOnSite: d.arg === 'active' ? x.showOnSite : false });
