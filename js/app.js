@@ -288,6 +288,7 @@
           ${nextCard}
 
           ${window.Connectors ? Connectors.bookingPanel(b) : ''}
+          ${window.EmailConnector ? EmailConnector.bookingPanel(b) : ''}
           <section class="card" id="details">
             <div class="card-head"><h2>Event details</h2><span class="eyebrow">Occasion & preparation</span></div>
             ${clashes.length ? `<p class="warn">Heads up: ${clashes.map(x => esc(W.clientName(W.clientOf(x)))).join(', ')} also booked on this date.</p>` : ''}

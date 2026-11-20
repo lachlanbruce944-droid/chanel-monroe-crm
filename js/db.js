@@ -27,6 +27,7 @@
     reminders: { table: 'crm_reminders', cols: ['bookingId', 'clientId', 'kind', 'title', 'dueAt', 'templateKey', 'channel', 'status', 'closedAt'], ts: ['dueAt', 'closedAt'] },
     photos:    { table: 'crm_photos',    cols: ['bookingId', 'clientId', 'kind', 'caption', 'fileName', 'takenAt', 'storagePath'] },
     reviews:   { table: 'crm_reviews',   cols: ['bookingId', 'clientId', 'rating', 'text', 'source', 'consentToShare', 'receivedAt'] },
+    emails: { table: 'crm_email_messages', cols: ['mailbox','graphId','messageKey','conversationId','sender','subject','bodyText','webLink','receivedAt','attachments','clientId','bookingId','matchReason','reviewedAt','reviewedBy'], ts: ['receivedAt','reviewedAt'], noExtra: true, optional: true },
     activity:  { table: 'crm_activity',  cols: ['bookingId', 'clientId', 'userId', 'type', 'text', 'at'], ts: ['at'] },
     /* Employees: team members and affiliates, incl. website applications (status 'applied'). Optional: the CRM
        still loads if supabase/crm_people.sql has not been run yet (DB.missing.people is then true). */

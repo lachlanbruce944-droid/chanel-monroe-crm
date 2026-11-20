@@ -63,3 +63,6 @@ CHECKLIST.md           running build checklist & roadmap
 
 ## Editing
 Edit the files and commit to `main`. GitHub Pages republishes within a minute or two. **After changing any css/js file, bump the `?v=` number on every file in `index.html`** (e.g. `?v=20261116b` → `?v=20261117a`), or browsers that opened the CRM before keep the old code. To run locally, any static server works (e.g. `npx serve .`). It talks to the live database, so sign in with a real account.
+
+## Microsoft 365 client email — 21 November 2026
+Settings includes a GoDaddy Microsoft 365 connector prepared for makeup@chanelmonroe.net. Backend and database are deployed, but import is disabled until Microsoft setup, mailbox-scoped permission and credentials are supplied. The optional five-minute schedule is prepared, not installed. See [setup guide](docs/MICROSOFT-365-EMAIL.md). New client emails appear under each booking for review without changing booking fields.
