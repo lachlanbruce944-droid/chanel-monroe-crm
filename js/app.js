@@ -703,13 +703,13 @@
       <form data-form="timingSettings" class="form-grid"><label>Generic appointment buffer (minutes)<input type="number" name="bufferMins" min="0" max="240" step="5" value="${esc(DB.setting('appointmentBufferMins', 15))}"></label><div class="row end"><button class="btn sm">Save buffer</button></div></form></section>
           <section class="card"><div class="card-head"><h2>Services & pricing</h2></div>
             <table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
-            ${W.services().map(s => `<tr>
+            ` + W.services().map(s => `<tr>
               <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
               <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
               <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
               <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
               <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
-              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('')}</tbody></table>
+              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('') + `</tbody></table>
             <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
           </section>
     </div></div>` };
