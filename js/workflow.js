@@ -396,13 +396,12 @@
     if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Consultation update failed');
     await DB.refresh();
     if (data.calendarError) UI.toast('Appointment saved; Apple Calendar needs a retry. ' + data.calendarError, 'error');
-    if (data.emailError) throw new Error('Appointment saved, but email was not sent. Use Retry consultation email. ' + data.emailError);
+    if (data.emailError) throw new Error('Appointment saved, but the mail service could not send the consultation email. ' + data.emailError);
     return fresh(b);
   }
   async function scheduleCall(b, iso, exceptionReason = '') {
     return consultationAction(b, 'schedule', { start: iso, exceptionReason });
   }
-  async function retryConsultationEmail(b) { return consultationAction(b, 'retry-email'); }
 
   async function reviewEnquiry(b, notes) {
     if (!notes?.trim()) throw new Error('Add review notes');
@@ -631,7 +630,7 @@
   window.Workflow = {
     developerModeEnabled, setDeveloperMode, STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
-    createEnquiry, scheduleCall, retryConsultationEmail, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
+    createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     archiveBooking, restoreBooking, deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
     generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };
