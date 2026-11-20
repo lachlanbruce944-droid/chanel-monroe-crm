@@ -698,18 +698,22 @@
   }
 
   function viewServices() {
+    const subcategory = s => s.subcategory || ({'Bridal look':'Bride','Bridal party and family':'Bridal party','Wedding trial':'Trials','Formal and graduation':'Formal & graduation','Gala, awards and race day':'Gala & race day','Milestone celebration':'Celebrations','Photoshoot look':'Photoshoots','Beauty close-up':'Beauty campaigns','High fashion and statement':'Fashion','SFX and prosthetics':'Special effects','Body paint':'Body art','Half day on set':'On-set bookings','Full day on set':'On-set bookings','Halloween':'Halloween','Easter':'Easter','Christmas and New Year':'Christmas & New Year','Birthdays and celebrations':'Birthdays','Festivals and day parties':'Festivals','Hens and themed nights':'Hens nights','Full character':'Character makeup','Mini face paint (10 people or more)':'Face painting','Everyday natural':'Everyday makeup','Headshots and work':'Professional portraits','Outdoor and family portraits':'Family portraits','Sensitive skin':'Skin-specific makeup','Makeup lesson':'Lessons','Strip lashes':'Lashes','Early start (before 6am)':'Extended hours','Touch-up kit':'Touch-up products'})[s.name] || 'General';
+    const groups = Object.groupBy ? Object.groupBy(W.services(), s => s.category || 'Other') : W.services().reduce((a,s)=>{(a[s.category||'Other'] ||= []).push(s);return a},{});
     return { title: 'Services & Pricing', html: `<div class="detail"><div class="detail-main">
       <section class="card"><div class="card-head"><h2>Appointment timing</h2></div><p class="muted">Edit the minutes for each service below. A generic calendar buffer is stored separately from service duration.</p>
       <form data-form="timingSettings" class="form-grid"><label>Generic appointment buffer (minutes)<input type="number" name="bufferMins" min="0" max="240" step="5" value="${esc(DB.setting('appointmentBufferMins', 15))}"></label><div class="row end"><button class="btn sm">Save buffer</button></div></form></section>
-          <section class="card"><div class="card-head"><h2>Services & pricing</h2></div>
-            <table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
-            ` + W.services().map(s => `<tr>
+          <section class="card"><div class="card-head"><h2>Services by category</h2></div><p class="muted">Services are organised into categories and subcategories. Edit either field to reorganise them.</p>
+            ` + Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).map(([category,items])=>`<details class="svc-category" open><summary><strong>${esc(category)}</strong> <span class="muted">(${items.length})</span></summary>
+              ` + Object.entries(items.reduce((groups,s)=>{(groups[subcategory(s)] ||= []).push(s);return groups},{})).sort(([a],[b])=>a.localeCompare(b)).map(([sub,services])=>`<div class="svc-group"><h4>${esc(sub)} <small class="muted">(${services.length})</small></h4><table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th>Subcategory</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
+              ` + services.map(s=>`<tr>
               <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
               <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
+              <td><input value="${esc(subcategory(s))}" data-change="svc" data-id="${s.id}" data-field="subcategory"></td>
               <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
               <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
               <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
-              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('') + `</tbody></table>
+              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('') + `</tbody></table></div>`).join('') + `</details>`).join('') + `
             <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
           </section>
     </div></div>` };
