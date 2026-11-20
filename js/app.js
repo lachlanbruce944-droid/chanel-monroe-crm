@@ -34,6 +34,7 @@
       case 'inventory': view = viewSoon('Inventory', 'box', 'Kit stock, product shades, expiry dates and reorder reminders will live here.'); break;
       case 'settings': view = window.Connectors ? Connectors.view() : {title:'Settings',html:'<p>Refresh the page to load connector settings.</p>'}; break;
       case 'profile': view = viewProfile(); break;
+      case 'services': view = viewServices(); break;
       case 'new': view = viewNewEnquiry(p1); break;
       default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
     }
@@ -53,7 +54,7 @@
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
       ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
-      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['profile', 'user', 'Profile'], ['settings', 'settings', 'Settings']];
+      ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['services', 'clock', 'Services & Pricing'], ['profile', 'user', 'Profile'], ['settings', 'settings', 'Settings']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
     const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'settings'].includes(n[0]));
     $app().innerHTML = `
@@ -672,17 +673,7 @@
               <label class="span-2">Deposit & cancellation policy<textarea name="cancellationPolicy" rows="3">${esc(p.cancellationPolicy)}</textarea></label>
               <div class="span-2 row end"><button class="btn sm">Save settings</button></div>
             </form></section>
-          <section class="card"><div class="card-head"><h2>Services & pricing</h2></div>
-            <table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
-            ${W.services().map(s => `<tr>
-              <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
-              <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
-              <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
-              <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
-              <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
-              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('')}</tbody></table>
-            <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
-          </section>
+
         </div>
         <div class="detail-side">
           <section class="card"><div class="card-head"><h2>Your account</h2></div>
@@ -704,6 +695,24 @@
           <button class="btn ghost block" data-act="logout">${icon('logout')} Sign out</button>
         </div></div>`
     };
+  }
+
+  function viewServices() {
+    return { title: 'Services & Pricing', html: `<div class="detail"><div class="detail-main">
+      <section class="card"><div class="card-head"><h2>Appointment timing</h2></div><p class="muted">Edit the minutes for each service below. A generic calendar buffer is stored separately from service duration.</p>
+      <form data-form="timingSettings" class="form-grid"><label>Generic appointment buffer (minutes)<input type="number" name="bufferMins" min="0" max="240" step="5" value="${esc(DB.setting('appointmentBufferMins', 15))}"></label><div class="row end"><button class="btn sm">Save buffer</button></div></form></section>
+          <section class="card"><div class="card-head"><h2>Services & pricing</h2></div>
+            <table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
+            ${W.services().map(s => `<tr>
+              <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
+              <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
+              <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
+              <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
+              <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
+              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('')}</tbody></table>
+            <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
+          </section>
+    </div></div>` };
   }
 
   /* ================= ENQUIRY FORMS ================= */
@@ -926,6 +935,7 @@
           <div class="form-grid"><label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
           <label>Ready by<input type="time" name="readyBy" value="${esc(readyBy)}"></label>
           <label>Location<input name="location" value="${esc(b.location)}"></label>
+          <label class="span-2">Client address (entered by Chanel)<input name="clientAddress" autocomplete="street-address" value="${esc(b.clientAddress || '')}" placeholder="Street address, suburb, state, postcode"></label>
           <label>People<input type="number" min="1" name="partySize" value="${esc(b.partySize || 1)}"></label></div>`,
         async onSubmit(f) {
           if (!b.readyBy && f.readyBy === readyBy) delete f.readyBy;
@@ -1145,6 +1155,7 @@
         ${b ? `<a class="btn primary" href="#/booking/${b.id}">View in CRM</a>` : '<a class="btn" href="#/enquire" data-act="reloadForm">Send another enquiry</a>'}</div>`;
       window.scrollTo(0, 0);
     },
+    async timingSettings(f){ const n=Number(f.bufferMins); if(!Number.isInteger(n)||n<0||n>240)throw Error('Buffer must be 0–240 minutes'); await DB.setSetting('appointmentBufferMins',n); toast('Appointment buffer saved'); rerender(); },
     async calendarBlock(f,form){await Connectors.saveBlock(DB.get('bookings',form.dataset.id),f.calendarStart,f.calendarEnd);toast('CRM calendar time block saved');rerender();},
     async serviceNotes(f, form) {
       const b = DB.get('bookings', form.dataset.id);
