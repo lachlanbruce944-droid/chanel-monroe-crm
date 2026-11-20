@@ -5,14 +5,19 @@
       patchTest: 'Sensitivity patch test',
       skinPrep: 'Personalised skin-prep session',
       earlyStart: 'Early start or out-of-hours setup',
-      additionalPerson: 'Additional person'
+      additionalPerson: 'Additional person',
+      travelKm: 'Additional travel kilometres', parking: 'Parking fees', tolls: 'Road tolls', accommodation: 'Travel accommodation',
+      lateNotice: 'Last-minute booking change', premiumLashes: 'Premium false lashes', tattooCoverage: 'Tattoo or scar coverage',
+      bodyMakeup: 'Body and décolletage makeup'
     }),
     after: Object.freeze({
       touchUps: 'On-site touch-ups or standby',
       secondLook: 'Second look or makeup change',
       extendedTime: 'Agreed overtime',
       removal: 'Makeup removal and aftercare',
-      takeHomeKit: 'Take-home touch-up kit'
+      takeHomeKit: 'Take-home touch-up kit',
+      waiting: 'Waiting time', consumables: 'Replacement consumables', extraGuest: 'Additional guest',
+      travelExpense: 'Agreed travel expense', cancellation: 'Agreed cancellation or rescheduling fee'
     })
   });
 
