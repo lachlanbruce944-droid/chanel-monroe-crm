@@ -71,12 +71,12 @@
         <nav class="side-nav">${nav.map(([k, ic, l, n]) => `<a href="#/${k}" class="${isActive(k) ? 'active' : ''}">${icon(ic)}<span>${l}</span>${n ? `<b class="count">${n}</b>` : ''}</a>`).join('')}</nav>
         <a class="btn primary block" href="#/new">${icon('plus')} New enquiry</a>
         <div class="side-foot"><div><strong>${esc(u.name)}</strong><small>${esc(u.email)}</small></div>
-          <button class="icon-btn" data-act="logout" title="Sign out">${icon('logout')}</button></div>
+          <button class="icon-btn" data-act="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div>
       </aside>
       <div class="main">
         <header class="topbar">
           ${view.back ? `<a class="icon-btn back" href="${view.back}" aria-label="Back">${icon('chevL')}</a>` : ''}
-          <div class="titles"><h1>${esc(view.title)}</h1>${view.subtitle ? `<p>${view.subtitle}</p>` : ''}</div>
+          <div class="titles"><h1>${icon((nav.find(n=>isActive(n[0]))||[])[1]||'file','section-icon')}${esc(view.title)}</h1>${view.subtitle ? `<p>${view.subtitle}</p>` : ''}</div>
           ${W.developerModeEnabled() ? `<button type="button" class="developer-mode-indicator" data-act="toggleDeveloperMode" title="Turn off developer mode">
             <span aria-hidden="true"></span>Developer mode enabled
           </button>` : ''}
@@ -194,10 +194,10 @@
   const STAGE_ACTIONS = {
     enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary'], ['retryConsultationEmail', '', 'Retry consultation email', '']],
     call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['retryConsultationEmail', '', 'Retry consultation email', ''], ['logCall', '', 'Complete call & save details', 'primary']],
-    updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Send quote & deposit request', 'primary']],
+    updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Review quote & deposit', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
-    day: [['photo', '', 'Upload photos / videos', ''], ['addReview', '', 'Record verbal / written feedback', ''], ['advance', '', 'Finish up · create final invoice', 'primary']],
+    day: [['photo', '', 'Upload photos / videos', ''], ['addReview', '', 'Record verbal / written feedback', ''], ['advance', '', 'Review final invoice', 'primary']],
     invoice: [['tpl', 'final_invoice', 'Send final invoice', ''], ['payment', 'final', 'Record payment', 'primary']],
     review: [['tpl', 'service_followup', 'Send thank-you & receipt', 'primary'], ['tpl', 'review_request', 'Ask for a review', ''], ['addReview', '', 'Record review', 'primary']],
     complete: []
@@ -526,25 +526,16 @@
 
   /* ================= INVOICES ================= */
   function viewInvoices() {
-    const all = DB.list('invoices').sort((a, b) => b.number.localeCompare(a.number));
-    const f = state.invoiceFilter;
-    const todayStr = today();
-    const isOverdue = i => i.status !== 'paid' && i.dueAt < todayStr;
-    const list = all.filter(i => f === 'all' || (f === 'overdue' ? isOverdue(i) : i.status === f));
-    const owing = all.filter(i => i.status !== 'paid').reduce((s, i) => s + i.total, 0);
-    const fy = (() => { const d = new Date(); const yr = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return [`${yr}-07-01`, `${yr + 1}-06-30`]; })();
-    const fyPaid = DB.list('payments', p => p.paidAt >= fy[0] && p.paidAt <= fy[1]).reduce((s, p) => s + +p.amount, 0);
-    return {
-      title: 'Invoices & payments',
-      actions: `<button class="btn ghost sm" data-act="exportCsv">Export CSV</button>`,
-      html: `<section class="stats three"><div class="stat"><span>Outstanding</span><strong>${money(owing)}</strong></div>
-        <div class="stat"><span>Overdue</span><strong>${all.filter(isOverdue).length}</strong></div>
-        <div class="stat"><span>Received this financial year</span><strong>${money(fyPaid)}</strong></div></section>
-        <div class="chips">${[['all', 'All'], ['sent', 'Unpaid'], ['overdue', 'Overdue'], ['paid', 'Paid']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-act="invFilter" data-arg="${k}">${l}</button>`).join('')}</div>
-        <section class="card flush">${list.length ? `<table class="table"><thead><tr><th>Invoice</th><th>Client</th><th>Type</th><th>Due</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
-        ${list.map(i => { const c = DB.get('clients', i.clientId) || {}; return `<tr data-href="#/invoice/${i.id}"><td><a href="#/invoice/${i.id}">${esc(i.number)}</a></td><td>${esc(W.clientName(c))}</td><td>${i.type === 'deposit' ? 'Deposit' : 'Final'}</td><td>${fmtShort(i.dueAt)}</td><td class="num">${money(i.total)}</td><td><span class="badge inv-${isOverdue(i) ? 'overdue' : i.status}">${isOverdue(i) ? 'overdue' : i.status}</span></td></tr>`; }).join('')}
-        </tbody></table>` : empty('No invoices here yet.')}</section>`
-    };
+    const invoices=DB.list('invoices').filter(i=>['deposit','final'].includes(i.type));
+    const groups=[...new Set(invoices.map(i=>i.bookingId))].map(id=>({booking:DB.get('bookings',id)||{id},invoices:invoices.filter(i=>i.bookingId===id)}));
+    const paid=g=>g.invoices.length===2&&g.invoices.every(i=>i.status==='paid');
+    const filter=state.invoiceFilter;
+    const visible=groups.filter(g=>filter==='all'||(filter==='paid'?paid(g):!paid(g)));
+    const paymentCell=(g,type)=>{const i=g.invoices.find(i=>i.type===type);return `<div class="payment-status ${i?.status==='paid'?'is-paid':'is-pending'}"><span>${icon(i?.status==='paid'?'check':'clock')}${i?.status==='paid'?'Confirmed paid':'Pending'}</span>${i?`<strong class="amount">${money(i.total)}</strong><small>${esc(i.number)}${i.status!=='paid'&&i.dueAt?' · Due '+fmtShort(i.dueAt):''}${['void','voided','uncollectible'].includes(i.stripeStatus)?' · Needs review':''}</small>`:'<small>Not issued yet</small>'}</div>`};
+    return {title:'Invoices',subtitle:'Deposit and final payment status',actions:'<button class="btn sm ghost" data-act="exportCsv">'+icon('file')+' Export</button>',html:`
+      <nav class="chips" aria-label="Invoice status">${[['all','All'],['pending','Pending'],['paid','Confirmed paid']].map(([key,label])=>`<button class="chip ${filter===key?'on':''}" data-act="invFilter" data-arg="${key}" aria-pressed="${filter===key}">${label} <span>${groups.filter(g=>key==='all'||(key==='paid'?paid(g):!paid(g))).length}</span></button>`).join('')}</nav>
+      <section class="card invoice-tracker">${visible.length?`<div class="table-scroll"><table class="table payment-table"><thead><tr><th>Booking</th><th>Deposit</th><th>Final invoice</th><th><span class="sr-only">Open booking</span></th></tr></thead><tbody>${visible.map(g=>{const c=DB.get('clients',g.booking.clientId||g.invoices[0].clientId)||{};return `<tr><td><strong>${esc(W.clientName(c))}</strong><small>${g.booking.eventDate?fmtShort(g.booking.eventDate):'Date to confirm'}</small></td><td>${paymentCell(g,'deposit')}</td><td>${paymentCell(g,'final')}</td><td><a class="btn sm" href="#/booking/${esc(g.booking.id)}">Open booking</a></td></tr>`}).join('')}</tbody></table></div>`:empty('No '+(filter==='all'?'invoices':filter==='paid'?'confirmed payments':'pending payments')+' yet.')}</section>
+      <p class="small muted">Review charges and payment links inside the booking.</p>`};
   }
 
   function viewInvoice(id) {
@@ -553,7 +544,7 @@
     const b = DB.get('bookings', inv.bookingId) || {}; const c = DB.get('clients', inv.clientId) || {}; const p = W.profile();
     return {
       title: `Invoice ${inv.number}`, back: b.id ? `#/booking/${b.id}` : '#/invoices',
-      actions: `<button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="create">${inv.stripeInvoiceId ? "View Stripe payment link" : "Create Stripe payment link"}</button><button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="refresh">Refresh payment status</button><button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
+      actions: `<button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="create">${inv.stripeInvoiceId ? "View payment link" : "Review for Stripe"}</button><button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="refresh">Refresh payment status</button><button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
       html: `<article class="invoice">
         <header><div>${avatarHtml(p, 'inv-logo')}<h2>${esc(p.businessName)}</h2><p>${esc(p.artistName)}${p.abn ? '<br>ABN ' + esc(p.abn) : ''}${p.phone ? '<br>' + esc(p.phone) : ''}${p.email ? '<br>' + esc(p.email) : ''}</p></div>
           <div class="inv-meta"><h1>${p.gstRegistered ? 'Tax invoice' : 'Invoice'}</h1><p><b>${esc(inv.number)}</b><br>Issued ${fmtDate(inv.issuedAt)}<br>Due ${fmtDate(inv.dueAt)}</p><span class="badge inv-${inv.status}">${inv.status}</span></div></header>
@@ -709,25 +700,24 @@
   }
 
   function viewServices() {
-    const subcategory = s => s.subcategory || ({'Bridal look':'Bride','Bridal party and family':'Bridal party','Wedding trial':'Trials','Formal and graduation':'Formal & graduation','Gala, awards and race day':'Gala & race day','Milestone celebration':'Celebrations','Photoshoot look':'Photoshoots','Beauty close-up':'Beauty campaigns','High fashion and statement':'Fashion','SFX and prosthetics':'Special effects','Body paint':'Body art','Half day on set':'On-set bookings','Full day on set':'On-set bookings','Halloween':'Halloween','Easter':'Easter','Christmas and New Year':'Christmas & New Year','Birthdays and celebrations':'Birthdays','Festivals and day parties':'Festivals','Hens and themed nights':'Hens nights','Full character':'Character makeup','Mini face paint (10 people or more)':'Face painting','Everyday natural':'Everyday makeup','Headshots and work':'Professional portraits','Outdoor and family portraits':'Family portraits','Sensitive skin':'Skin-specific makeup','Makeup lesson':'Lessons','Strip lashes':'Lashes','Early start (before 6am)':'Extended hours','Touch-up kit':'Touch-up products'})[s.name] || 'General';
-    const groups = Object.groupBy ? Object.groupBy(W.services(), s => s.category || 'Other') : W.services().reduce((a,s)=>{(a[s.category||'Other'] ||= []).push(s);return a},{});
-    return { title: 'Services', html: `<div class="detail"><div class="detail-main">
-      <section class="card"><div class="card-head"><h2>Appointment timing</h2></div><p class="muted">Edit the minutes for each service below. A generic calendar buffer is stored separately from service duration.</p>
-      <form data-form="timingSettings" class="form-grid"><label>Generic appointment buffer (minutes)<input type="number" name="bufferMins" min="0" max="240" step="5" value="${esc(DB.setting('appointmentBufferMins', 15))}"></label><div class="row end"><button class="btn sm">Save buffer</button></div></form></section>
-          <section class="card"><div class="card-head"><h2>Service categories</h2></div><p class="muted">Services are organised into categories and subcategories. Edit either field to reorganise them.</p>
-            ` + Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).map(([category,items])=>`<details class="svc-category" open><summary><strong>${esc(category)}</strong> <span class="muted">(${items.length})</span></summary>
-              ` + Object.entries(items.reduce((groups,s)=>{(groups[subcategory(s)] ||= []).push(s);return groups},{})).sort(([a],[b])=>a.localeCompare(b)).map(([sub,services])=>`<div class="svc-group"><h4>${esc(sub)} <small class="muted">(${services.length})</small></h4><table class="lines svc"><thead><tr><th>Service</th><th>Category</th><th>Subcategory</th><th class="num">Price</th><th class="num">Mins</th><th>On</th><th></th></tr></thead><tbody>
-              ` + services.map(s=>`<tr>
-              <td><input value="${esc(s.name)}" data-change="svc" data-id="${s.id}" data-field="name"></td>
-              <td><input value="${esc(s.category || '')}" data-change="svc" data-id="${s.id}" data-field="category"></td>
-              <td><input value="${esc(subcategory(s))}" data-change="svc" data-id="${s.id}" data-field="subcategory"></td>
-              <td class="num"><input type="number" min="0" step="0.01" value="${esc(s.price)}" data-change="svc" data-id="${s.id}" data-field="price"></td>
-              <td class="num"><input type="number" min="0" value="${esc(s.durationMins || 0)}" data-change="svc" data-id="${s.id}" data-field="durationMins"></td>
-              <td><input type="checkbox" ${s.active !== false ? 'checked' : ''} data-change="svc" data-id="${s.id}" data-field="active"></td>
-              <td><button class="icon-btn" data-act="deleteService" data-id="${s.id}">${icon('x')}</button></td></tr>`).join('') + `</tbody></table></div>`).join('') + `</details>`).join('') + `
-            <form data-form="addService" class="row gap add-line"><input name="name" placeholder="New service" required><input name="price" type="number" min="0" step="0.01" placeholder="Price" class="qty" required><button class="btn sm">${icon('plus')} Add</button></form>
-          </section>
-    </div></div>` };
+    const all=W.services(),groups=all.reduce((a,s)=>{(a[s.category||'Other'] ||= []).push(s);return a},{});
+    const field=(service,key,type='text',extra='')=>`<input type="${type}" value="${esc(service[key]??'')}" data-change="svc" data-id="${esc(service.id)}" data-field="${key}" aria-label="${esc(service.name)} · ${key==='durationMins'?'minutes':key}" ${extra}>`;
+    return {title:'Services',subtitle:'Rates and appointment time',actions:'<button class="btn sm" data-act="focusServiceAdd">'+icon('plus')+' Add service</button>',html:`
+      <section class="card service-buffer"><div class="card-head"><h2>${icon('calendar')} Booking buffer</h2></div>
+      <form data-form="timingSettings" class="row gap"><label>Minutes between appointments<input type="number" name="bufferMins" min="0" max="240" step="5" value="${esc(DB.setting('appointmentBufferMins',60))}"></label><button class="btn sm" type="submit">Save buffer</button></form></section>
+      <div class="service-directory">${Object.entries(groups).sort(([a],[b])=>{const order=['Bridal & events','Natural beauty','Editorial & creative','Parties & seasonal','Add-on','Other'];return (order.includes(a)?order.indexOf(a):99)-(order.includes(b)?order.indexOf(b):99)||a.localeCompare(b)}).map(([category,items])=>`<section class="card service-category">
+        <div class="card-head"><h2>${esc(category)}</h2><span class="badge">${items.length}</span></div>
+        <div class="table-scroll"><table class="lines svc service-table"><thead><tr><th>Service</th><th class="num">Rate · AUD</th><th class="num">Minutes</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+        ${items.map(service=>`<tr><td><div class="service-name">${field(service,'name')}</div><div class="service-group-fields"><label>Category${field(service,'category')}</label><label>Subcategory${field(service,'subcategory')}</label></div>${service.subcategory&&service.subcategory.toLowerCase()!==service.name.toLowerCase()?`<small class="service-subcategory">${esc(service.subcategory)}</small>`:''}</td>
+        <td class="num">${field(service,'price','number','min="0" step="0.01"')}</td>
+        <td class="num">${field(service,'durationMins','number','min="0" step="5"')}</td>
+        <td><input type="checkbox" ${service.active!==false?'checked':''} data-change="svc" data-id="${esc(service.id)}" data-field="active" aria-label="${esc(service.name)} active"></td>
+        <td><button class="icon-btn" data-act="deleteService" data-id="${esc(service.id)}" aria-label="Delete ${esc(service.name)}" title="Delete service">${icon('x')}</button></td></tr>`).join('')}
+        </tbody></table></div></section>`).join('')}</div>
+      <section class="card" id="service-add"><div class="card-head"><h2>${icon('plus')} Add service</h2></div><form data-form="addService" class="form-grid">
+        <label>Name<input name="name" required></label><label>Category<input name="category" list="service-categories" placeholder="Other"><datalist id="service-categories">${Object.keys(groups).map(c=>`<option value="${esc(c)}">`).join('')}</datalist></label>
+        <label>Rate · AUD<input name="price" type="number" min="0" step="0.01" required></label><label>Minutes<input name="durationMins" type="number" min="0" step="5" value="60"></label>
+        <div class="span-2 row end"><button type="submit" class="btn primary">${icon('plus')} Add service</button></div></form></section>`};
   }
 
   /* ================= ENQUIRY FORMS ================= */
@@ -884,6 +874,7 @@
 
   /* ================= ACTIONS (buttons) ================= */
   const Actions = {
+    async focusServiceAdd(){document.getElementById('service-add')?.scrollIntoView({behavior:'smooth',block:'start'});},
     async removeCalendarBlock(d){const b=DB.get('bookings',d.id);if(!await confirmBox('Remove this job’s exported Apple Calendar events? CRM appointment times stay reserved.','Remove events'))return;await Connectors.removeBlock(b);toast('Apple Calendar events removed');rerender();},
     async toggleDeveloperMode() {
       const enabled = W.developerModeEnabled();
@@ -909,6 +900,25 @@
       if (key) openComposer(d.id, key);
     },
     async stripeInvoice(d) {
+      const invoice=DB.get('invoices',d.id);if(!invoice)throw Error('Invoice not found');
+      const booking=DB.get('bookings',invoice.bookingId);if(!booking)throw Error('Booking not found');
+      if(d.arg==='create'&&!invoice.stripeInvoiceId){
+        const c=W.clientOf(booking),totals=W.totals(booking);
+        const payments=DB.list('payments',p=>p.bookingId===booking.id);
+        const paid=payments.filter(p=>invoice.type==='deposit'?p.type==='deposit':p.type!=='deposit').reduce((n,p)=>n+Math.round(Number(p.amount)*100),0);
+        const due=(Math.round(Number(invoice.total)*100)-paid)/100;
+        const expected=invoice.type==='deposit'?totals.deposit:Math.max(0,totals.total-totals.depositPaid);
+        if(Math.abs(Number(invoice.total)-expected)>0.005)throw Error('Invoice differs from the current booking. Review and update it before sending to Stripe.');
+        if(!c.email)throw Error('Add the client email before creating the payment link');
+        if(!(due>=0.50))throw Error('There is no payable balance of at least $0.50');
+        const confirmed=await modal({title:invoice.type==='deposit'?'Review deposit':'Review final invoice',submitLabel:'Confirm & create Stripe link',wide:true,
+          body:`<div class="review-banner">${icon('file')} Check the details before creating the payment link.</div>
+          <dl class="kv"><dt>Client</dt><dd>${esc(W.clientName(c))}</dd><dt>Email</dt><dd>${esc(c.email)}</dd><dt>Appointment</dt><dd>${booking.eventDate?fmtDate(booking.eventDate):'Not set'}${booking.readyBy?' · Ready by '+fmtTime(booking.readyBy):''}</dd><dt>Location</dt><dd>${esc(booking.clientAddress||booking.location||'Not set')}</dd></dl>
+          <table class="table"><thead><tr><th>Charge</th><th class="num">Amount · AUD</th></tr></thead><tbody>${(invoice.items||[]).map(item=>`<tr><td>${esc(item.desc)}${item.qty>1?' × '+esc(item.qty):''}</td><td class="num amount">${money(item.qty*item.price)}</td></tr>`).join('')}</tbody></table>
+          <dl class="review-totals"><dt>Booking total</dt><dd>${money(totals.total)}</dd><dt>Deposit received</dt><dd>${money(totals.depositPaid)}</dd><dt>Additional costs</dt><dd>${money(totals.additionalCosts)}</dd><dt>${invoice.type==='deposit'?'Deposit due now':'Final amount due'}</dt><dd class="amount due-now">${money(due)}</dd></dl>
+          <p class="small muted">This creates and finalises a Stripe invoice. It does not email the client or charge a card. Review the client message separately before sending.</p>`,onSubmit:()=>true});
+        if(!confirmed)return;
+      }
       const { data, error } = await DB.client.functions.invoke('crm-stripe', { body: { action: d.arg, invoiceId: d.id } });
       if (error || !data?.ok) throw Error(data?.error || error?.message || 'Stripe invoice connection unavailable');
       await DB.refresh(); rerender();
@@ -1212,7 +1222,7 @@
       await W.saveProfile(f); toast('Saved'); rerender();
     },
     async addService(f, form) {
-      await DB.save('services', { name: f.name, price: +f.price || 0, category: 'Other', durationMins: 0, active: true, sort: DB.list('services').length });
+      await DB.save('services', { name: f.name, price: +f.price || 0, category: f.category?.trim() || 'Other', durationMins: +f.durationMins || 0, active: true, sort: DB.list('services').length });
       form.reset(); rerender();
     },
     async me(f) { const r = await Auth.updateMe(f); toast(r === 'confirm-email' ? 'Email change pending. Check both inboxes for confirmation links.' : 'Account updated'); rerender(); },
@@ -1260,7 +1270,7 @@
 
   /* ================= GLOBAL LISTENERS ================= */
   function initialiseEditCards() {
-    const formNames = ['details', 'calendarBlock', 'serviceNotes', 'client', 'profile', 'me', 'password', 'note'];
+    const formNames = ['timingSettings', 'details', 'calendarBlock', 'serviceNotes', 'client', 'profile', 'me', 'password', 'note'];
     for (const form of $app().querySelectorAll(formNames.map(name => `form[data-form="${name}"]`).join(','))) {
       const controls = [...form.querySelectorAll('input:not([type=hidden]),select,textarea,button[type=submit],button:not([type])')];
       const card = form.closest('.card');
@@ -1288,20 +1298,27 @@
     footer.append(button);
     footerHost.append(footer);
     let editing = false;
+    const sectionLabel=(footerHost.closest('.card')?.querySelector('h2')?.textContent||'details').trim();
+    container.classList.add('editable-section');
     function refresh() {
+      container.classList.toggle('is-editing',editing);
       for (const {control, value, disabled, hidden} of snapshot) {
         control.hidden = !editing || hidden;
         if (disabled !== undefined) control.disabled = !editing || disabled;
         value.hidden = editing || hidden || !control.matches('input:not([type=password]):not([type=file]),select,textarea');
         if (!value.hidden) {
-          const display = control.type === 'checkbox' ? (control.checked ? 'Yes' : 'No') :
+          const monetary=['price','travelFee','discount','depositAmount','additionalCosts'].includes(control.dataset.field||control.dataset.change||control.name);
+          value.classList.toggle('amount',monetary);
+          const display = control.type === 'checkbox' ? (control.dataset.field==='active'?(control.checked?'Active':'Inactive'):(control.checked?'Yes':'No')) :
+            monetary&&control.value!=='' ? money(control.value) :
             control.tagName === 'SELECT' ? control.selectedOptions[0]?.textContent :
             control.type === 'time' && control.value ? fmtTime(control.value) :
             control.type === 'date' && control.value ? fmtShort(control.value) : control.value;
           value.textContent = display || '—';
         }
       }
-      button.textContent = editing ? (container.tagName === 'FORM' ? 'Cancel' : 'Done editing') : 'Edit';
+      button.innerHTML=icon(editing?'check':'edit')+(editing?(container.tagName==='FORM'?'Cancel':'Done editing'):'Edit');
+      button.setAttribute('aria-label',(editing?'Finish editing ':'Edit ')+sectionLabel);
       button.setAttribute('aria-expanded',String(editing));
     }
     button.onclick = () => {

@@ -446,3 +446,87 @@ label.btn { flex-direction: row; font-size: 13px; color: var(--ink); }
 }
 @keyframes developer-light { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .developer-mode-indicator span { animation: none; } }
+
+/* Shared CRM refinements: existing rose palette, pill buttons, cards and outline icons. */
+@media screen {
+  :root { --muted:#74666d; }
+  body { font-size:16px; }
+  .content { padding-bottom:30px; }
+  .topbar h1 { display:flex;align-items:center;gap:10px;overflow-wrap:anywhere; }
+  .section-icon { width:23px;height:23px;color:var(--accent-dark); }
+  .card { padding:20px;border-color:#e5d9d4; }
+  .card-head { align-items:flex-start;flex-wrap:wrap;gap:12px; }
+  .card h2 { font-size:17px;line-height:1.4; }
+  .card h2 .ic { vertical-align:middle;margin-right:5px;color:var(--accent-dark); }
+  label { font-size:14px;line-height:1.45; }
+  input,select,textarea { font-size:16px;min-height:44px; }
+  input[type=checkbox],input[type=radio] { min-height:auto;width:19px;height:19px; }
+  .btn { min-height:42px;line-height:1.3;white-space:normal;text-align:center; }
+  .btn.sm { min-height:38px;font-size:14px; }
+  .icon-btn { min-width:40px;min-height:40px; }
+  :is(a,button,input,select,textarea,summary):focus-visible { outline:3px solid var(--accent-dark);outline-offset:3px; }
+  .badge { font-size:12px;line-height:1.5;letter-spacing:.015em; }
+  .badge.inv-paid { color:#286345; }
+  .badge.inv-sent,.badge.inv-overdue { color:#855015; }
+  .table-scroll { overflow-x:auto;max-width:100%;overscroll-behavior-inline:contain; }
+  .num,.amount,.sums dd,.stats strong,.enquiry-value strong { font-variant-numeric:tabular-nums; }
+  .num,.amount { white-space:nowrap; }
+  .num input { text-align:right; }
+  .edit-card-footer { padding-top:12px;border-top:1px solid var(--line-2); }
+  .edit-card-footer .btn { color:var(--accent-dark);border-color:#d9bbc2;background:#fff9fa; }
+  .is-editing>.edit-card-footer .btn { color:var(--ink);background:var(--line-2); }
+  .is-editing input,.is-editing select,.is-editing textarea { background:#fffdfb;border-color:#cfafb8; }
+  .service-directory { display:grid;grid-template-columns:minmax(0,1fr);gap:16px; }
+  .service-directory .card { margin-bottom:0;min-width:0; }
+  .service-buffer { max-width:620px; }
+  .service-buffer form { align-items:flex-end;flex-wrap:wrap; }
+  .service-buffer label { flex:1;min-width:180px; }
+  .service-table { width:100%; }
+  .service-table th { color:var(--muted);font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;padding:10px 8px; }
+  .service-table td { padding:14px 8px;border-top:1px solid var(--line-2);vertical-align:middle; }
+  .service-table td:first-child { width:50%; }
+  .service-table td:last-child { width:40px; }
+  .service-name .edit-card-value { font-size:15px;font-weight:600;line-height:1.5; }
+  .service-table td:nth-child(3) .edit-card-value { font-variant-numeric:tabular-nums; }
+  .service-group-fields { display:none; }
+  .service-category.is-editing .service-group-fields { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px; }
+  .service-subcategory { display:block;margin-top:3px;color:var(--muted); }
+  .service-category.is-editing .service-subcategory { display:none; }
+  .payment-table { width:100%; }
+  .payment-table td { vertical-align:top;padding:18px 12px; }
+  .payment-table td>small { display:block;margin-top:5px;color:var(--muted); }
+  .payment-status { display:flex;flex-direction:column;gap:6px;min-width:155px; }
+  .payment-status>span { display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600; }
+  .payment-status .ic { width:16px;height:16px; }
+  .payment-status.is-paid>span { color:#286345; }
+  .payment-status.is-pending>span { color:#855015; }
+  .payment-status small { color:var(--muted); }
+  .review-banner { display:flex;align-items:center;gap:9px;padding:14px;border-radius:var(--radius-sm);background:var(--accent-soft);margin-bottom:18px; }
+  .review-totals { display:grid;grid-template-columns:1fr auto;gap:9px;padding:16px 0;border-top:1px solid var(--line); }
+  .review-totals dd { margin:0;text-align:right;font-variant-numeric:tabular-nums; }
+  .due-now { font-size:22px;font-weight:700;color:var(--accent-dark); }
+  .sr-only { position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+  @media(max-width:620px) {
+    .card { padding:16px; }
+    .top-actions { width:100%; }
+    .top-actions .btn { flex:1; }
+    .table-scroll:has(.service-table),.table-scroll:has(.payment-table) { overflow:visible; }
+    .service-table thead,.payment-table thead { display:none; }
+    .service-table,.service-table tbody,.service-table tr,.payment-table,.payment-table tbody,.payment-table tr { display:block; }
+    .service-table tr { display:grid;grid-template-columns:1fr 1fr auto;gap:10px;border-top:1px solid var(--line);padding:14px 0; }
+    .service-table td { padding:0;border:0;width:auto!important; }
+    .service-table td:first-child { grid-column:1/-1; }
+    .service-table td:nth-child(2)::before { content:'Rate · AUD';display:block;font-size:12px;color:var(--muted);margin-bottom:3px; }
+    .service-table td:nth-child(3)::before { content:'Minutes';display:block;font-size:12px;color:var(--muted);margin-bottom:3px; }
+    .service-table .num,.service-table .num input { text-align:left; }
+    .service-table td:last-child { grid-column:3; }
+    .payment-table tr { display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 0;border-top:1px solid var(--line); }
+    .payment-table td { display:block;padding:0;border:0; }
+    .payment-table td:first-child,.payment-table td:last-child { grid-column:1/-1; }
+    .payment-table td:nth-child(2)::before { content:'Deposit';display:block;font-size:12px;color:var(--muted);margin-bottom:7px; }
+    .payment-table td:nth-child(3)::before { content:'Final invoice';display:block;font-size:12px;color:var(--muted);margin-bottom:7px; }
+    .payment-status { min-width:0; }
+    .form-grid { grid-template-columns:minmax(0,1fr); }
+  }
+  @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important;animation:none!important;transition:none!important; } }
+}
