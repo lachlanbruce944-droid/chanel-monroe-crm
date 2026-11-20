@@ -66,3 +66,6 @@ Edit the files and commit to `main`. GitHub Pages republishes within a minute or
 
 ## Microsoft 365 client email — 21 November 2026
 Settings includes a GoDaddy Microsoft 365 connector prepared for makeup@chanelmonroe.net. Backend and database are deployed, but import is disabled until Microsoft setup, mailbox-scoped permission and credentials are supplied. The optional five-minute schedule is prepared, not installed. See [setup guide](docs/MICROSOFT-365-EMAIL.md). New client emails appear under each booking for review without changing booking fields.
+
+## Associate prospects — 21 November 2026
+25 researched Gold Coast makeup businesses are CRM-only prospects. Record contact and a confirmed connection before the owner publishes each profile. The website hides Associates when none are published and has no mock associate cards. [Research and workflow](docs/GOLD-COAST-ASSOCIATE-PROSPECTS.md). Instagram activity and most profile photos still require direct review.
