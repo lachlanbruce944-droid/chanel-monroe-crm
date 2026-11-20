@@ -409,6 +409,7 @@
     const patch = { callLoggedAt: cur.callLoggedAt || new Date().toISOString() };
     if (callNote) patch.callNotes = [cur.callNotes, callNote].filter(Boolean).join('\n\n');
     if (updates.readyBy !== undefined) patch.readyBy = updates.readyBy;
+    if (updates.clientAddress !== undefined) patch.clientAddress = String(updates.clientAddress).trim();
     for (const k of ['eventDate', 'location', 'partySize', 'eventType']) if (updates[k]) patch[k] = updates[k];
     b = await DB.save('bookings', { ...cur, ...patch });
     await log(b, 'call', callNote ? `Call notes: ${callNote}` : 'Call details saved');
