@@ -134,6 +134,23 @@
     return { servicesTotal, travel, additionalCosts, discount, total, gst, deposit, paid, depositPaid, balance: Math.max(0, total - paid) };
   }
 
+  const developerModeKey = () => {
+    const user = window.Auth?.current;
+    return user?.role === 'owner' && user.id ? `crm:developer-mode:${user.id}` : null;
+  };
+
+  function developerModeEnabled() {
+    const key = developerModeKey();
+    return !!key && window.sessionStorage?.getItem(key) === 'on';
+  }
+
+  function setDeveloperMode(enabled) {
+    const key = developerModeKey();
+    if (!key) throw Error('Only the CRM owner can change developer mode');
+    if (enabled) window.sessionStorage.setItem(key, 'on');
+    else window.sessionStorage.removeItem(key);
+  }
+
   /* ---------- guards ---------- */
   // Each reason: { text, soft } — soft reasons can be overridden ("continue anyway").
   function checkNext(b) {
@@ -161,7 +178,7 @@
         if (t.deposit > 0 && t.depositPaid < t.deposit) reasons.push({ text: `Record the ${money(t.deposit)} deposit` });
         break;
       case 'booked':
-        if (b.eventDate && b.eventDate > today()) reasons.push({ text: `The day hasn’t arrived yet (${fmtDate(b.eventDate)})`, soft: true });
+        if (!developerModeEnabled() && b.eventDate && b.eventDate > today()) reasons.push({ text: `The day hasn’t arrived yet (${fmtDate(b.eventDate)})`, soft: true });
         break;
       case 'day':
         if (!DB.list('photos', p => p.bookingId === b.id).length) reasons.push({ text: 'No photos uploaded from the day yet', soft: true });
@@ -405,7 +422,7 @@
     const cur = fresh(b);
     const callNote = notes?.trim();
     if (['enquiry', 'call'].includes(cur.stage) && (cur.consultation?.provider !== 'crm' || cur.consultation?.status !== 'confirmed')) throw new Error('Approve the phone consultation first');
-    if (['enquiry', 'call'].includes(cur.stage) && new Date(cur.callAt) > new Date()) throw new Error('The scheduled call has not started yet');
+    if (!developerModeEnabled() && ['enquiry', 'call'].includes(cur.stage) && new Date(cur.callAt) > new Date()) throw new Error('The scheduled call has not started yet');
     const patch = { callLoggedAt: cur.callLoggedAt || new Date().toISOString() };
     if (callNote) patch.callNotes = [cur.callNotes, callNote].filter(Boolean).join('\n\n');
     if (updates.readyBy !== undefined) patch.readyBy = updates.readyBy;
@@ -594,7 +611,7 @@
   const renderTemplate = (key, b) => TEMPLATES[key].build(vars(fresh(b) || b));
 
   window.Workflow = {
-    STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
+    developerModeEnabled, setDeveloperMode, STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
     createEnquiry, scheduleCall, retryConsultationEmail, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,

@@ -38,6 +38,13 @@
       case 'new': view = viewNewEnquiry(p1); break;
       default: view = { title: 'Not found', html: '<div class="empty">That page doesn’t exist. <a href="#/">Go home</a></div>' };
     }
+    if (p0 === 'settings' && Auth.current.role === 'owner') {
+      const enabled = W.developerModeEnabled();
+      view.html += `<section class="card"><h2>Developer mode</h2>
+        <p>Complete a phone consult or advance past the booked event day early. Changes are saved to the live CRM.</p>
+        <button type="button" class="btn" data-act="toggleDeveloperMode">${enabled ? 'Disable' : 'Enable'} developer mode</button>
+      </section>`;
+    }
     renderShell(view, p0 || '');
     initialiseEditCards();
     if (view.after) view.after();
@@ -70,6 +77,9 @@
         <header class="topbar">
           ${view.back ? `<a class="icon-btn back" href="${view.back}" aria-label="Back">${icon('chevL')}</a>` : ''}
           <div class="titles"><h1>${esc(view.title)}</h1>${view.subtitle ? `<p>${view.subtitle}</p>` : ''}</div>
+          ${W.developerModeEnabled() ? `<button type="button" class="developer-mode-indicator" data-act="toggleDeveloperMode" title="Turn off developer mode">
+            <span aria-hidden="true"></span>Developer mode enabled
+          </button>` : ''}
           <div class="top-actions">${view.actions || ''}</div>
         </header>
         <main class="content">${view.html}</main>
@@ -874,7 +884,13 @@
   /* ================= ACTIONS (buttons) ================= */
   const Actions = {
     async removeCalendarBlock(d){const b=DB.get('bookings',d.id);if(!await confirmBox('Remove this job’s exported Apple Calendar events? CRM appointment times stay reserved.','Remove events'))return;await Connectors.removeBlock(b);toast('Apple Calendar events removed');rerender();},
-    async logout() { await Auth.logout(); location.hash = '#/'; render(); },
+    async toggleDeveloperMode() {
+      const enabled = W.developerModeEnabled();
+      if (!enabled && !await confirmBox('Enable early pipeline testing in this tab? Changes still affect live records and normal actions can still send emails.', 'Enable developer mode')) return;
+      W.setDeveloperMode(!enabled);
+      rerender();
+    },
+    async logout() { if (W.developerModeEnabled()) W.setDeveloperMode(false); await Auth.logout(); location.hash = '#/'; render(); },
     async recheck() { await Auth.loadStaff(); if (Auth.isStaff()) await afterSignIn(); else toast('Still waiting for access', 'error'); },
     async forgot() {
       const email = document.querySelector('form[data-form=login] [name=email]')?.value;

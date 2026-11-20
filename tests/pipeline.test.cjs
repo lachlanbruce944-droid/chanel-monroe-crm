@@ -2,7 +2,8 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),vm=requir
 function fixture(patch={}){
  const rows={bookings:[{id:'b',clientId:'c',stage:'enquiry',status:'open',eventDate:'2026-12-30',lines:[{name:'Makeup',qty:1,price:200}],...patch}],clients:[{id:'c',firstName:'Jess'}],payments:[],invoices:[],reminders:[],photos:[],reviews:[],activity:[]};let count=0,calls=[];
  const DB={get:(s,id)=>rows[s]?.find(x=>x.id===id),list:(s,f)=>rows[s]?.filter(f||(()=>true))||[],find:(s,f)=>rows[s]?.find(f),setting:()=>undefined,setSetting:async()=>{},uid:()=>String(++count),save:async(s,v)=>{v={id:v.id||String(++count),...v};const i=rows[s].findIndex(x=>x.id===v.id);if(i<0)rows[s].push(v);else rows[s][i]=v;return v},refresh:async()=>{},client:{functions:{invoke:async(n,v)=>{calls.push(v.body);return {data:{ok:true}}}}}};
- const ctx={window:{},DB,UI:{money:n=>'$'+n,fmtDate:x=>x,fmtTime:x=>x,fmtDateTime:x=>x,today:()=> '2026-11-19',ymd:d=>new Date(d).toISOString().slice(0,10),parseYmd:d=>new Date(d),addDays:(d,n)=>new Date(+new Date(d)+n*86400000)}};vm.runInNewContext(fs.readFileSync('js/workflow.js','utf8'),ctx);return {W:ctx.window.Workflow,rows,b:rows.bookings[0],calls};
+ const values=new Map();
+ const ctx={window:{Auth:{current:{id:'owner',role:'owner'}},sessionStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)}},DB,UI:{money:n=>'$'+n,fmtDate:x=>x,fmtTime:x=>x,fmtDateTime:x=>x,today:()=> '2026-11-19',ymd:d=>new Date(d).toISOString().slice(0,10),parseYmd:d=>new Date(d),addDays:(d,n)=>new Date(+new Date(d)+n*86400000)}};vm.runInNewContext(fs.readFileSync('js/workflow.js','utf8'),ctx);return {W:ctx.window.Workflow,rows,b:rows.bookings[0],calls};
 }
 test('owner approval has no pre-call notes prerequisite',async()=>{const f=fixture({callAt:'2026-12-01T01:00:00Z'});await f.W.approveConsultation(f.b);assert.equal(f.calls[0].action,'approve');assert.ok(!f.b.enquiryReviewedAt)});
 test('pending consultation cannot progress but CRM approval can without notes',()=>{const f=fixture({consultation:{provider:'crm',status:'pending'}});assert.equal(f.W.checkNext(f.b).ok,false);f.b.consultation.status='confirmed';assert.equal(f.W.checkNext(f.b).ok,true)});
@@ -17,4 +18,20 @@ test('completing a call with blank notes saves an edited ready-by time and prese
   assert.equal(f.rows.bookings[0].readyBy,'14:30');
   assert.equal(f.rows.bookings[0].callNotes,'Existing notes');
   assert.equal(f.rows.bookings[0].stage,'updates');
+});
+
+test('developer mode skips consult and event waits while preserving approval',async()=>{
+ const f=fixture({stage:'call',callAt:'2099-01-01T01:00Z',consultation:{provider:'crm',status:'pending'}});
+ assert.equal(f.W.developerModeEnabled(),false);
+ f.W.setDeveloperMode(true);
+ await assert.rejects(()=>f.W.logCall(f.b,''),/Approve/);
+ f.b.consultation.status='confirmed';
+ await f.W.logCall(f.b,'');
+ assert.equal(f.rows.bookings[0].stage,'updates');
+ const booking=fixture({stage:'booked',eventDate:'2099-01-02'});
+ assert.equal(booking.W.checkNext(booking.b).ok,false);
+ booking.W.setDeveloperMode(true);
+ assert.equal(booking.W.checkNext(booking.b).ok,true);
+ booking.W.setDeveloperMode(false);
+ assert.equal(booking.W.checkNext(booking.b).ok,false);
 });
