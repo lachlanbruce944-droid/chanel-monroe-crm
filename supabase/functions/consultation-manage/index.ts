@@ -43,7 +43,31 @@ Deno.serve(async req=>{
     const token=Deno.env.get('RESEND_API_KEY');if(!token||!client?.email)throw Error('Email delivery requires a client email and configured mail service');
     const when=new Date(message.start_at).toLocaleString('en-AU',{timeZone:'Australia/Brisbane',dateStyle:'full',timeStyle:'short'}),confirmed=message.kind==='confirmed';
     const subject=confirmed?'Your phone consultation is confirmed':'Your phone consultation time · pending approval';
-    const html=`<p>Hi ${esc(client.first_name||'there')},</p><h2>${subject}</h2><p>${esc(when)} · Brisbane time (AEST)</p><p>Free 15-minute phone consultation. Chanel will call ${esc(client.phone||'your supplied number')}.</p><p>${confirmed?'Chanel has approved this appointment. You do not need to confirm again.':'This time is pending Chanel’s approval. We will email your confirmed booking once approved. You do not need to confirm again.'}</p><p>This is your phone consultation; your makeup appointment is confirmed separately after your quote and deposit. Need a change? Reply to this email.</p>`;
+    // Match the enquiry email's warm blush palette, Georgia headings and compact detail rows.
+    const site='https://lachlanbruce944-droid.github.io/chanel-monroe-makeup/';
+    const title=confirmed?'Your phone consultation is confirmed':'Your phone consultation request';
+    const status=confirmed?'CONFIRMED':'PENDING APPROVAL';
+    const statusText=confirmed
+      ? 'Chanel has approved your phone consultation. You do not need to confirm again.'
+      : 'Your preferred time is awaiting Chanel’s approval. We will email you once it is confirmed; there is nothing else you need to do.';
+    const html=`<!doctype html><html><body style="margin:0;background:#f5e9e1;font-family:Helvetica,Arial,sans-serif;color:#3a2622">
+<div style="max-width:600px;margin:0 auto;padding:24px"><div style="background:#fbf3ee;border-radius:18px;padding:24px;border:1px solid #e2c3b2">
+<div style="font-family:Georgia,serif;font-size:22px;margin-bottom:4px">Chanel Monroe <span style="font-size:11px;letter-spacing:.2em;color:#7a5a50">MAKEUP</span></div>
+<p style="font-size:11px;letter-spacing:.15em;color:#b8846b;margin:22px 0 6px;font-weight:bold">${status}</p>
+<h1 style="font-family:Georgia,serif;font-weight:normal;font-size:24px;line-height:1.3;margin:6px 0 16px">${title}</h1>
+<p style="font-size:15px;line-height:1.6;margin:0 0 14px">Hi ${esc(client.first_name||'there')},</p>
+<p style="font-size:15px;line-height:1.6;margin:0 0 18px">${statusText}</p>
+<div style="background:#f5e9e1;border-radius:12px;padding:16px 18px;margin:0 0 18px">
+<p style="font-size:12px;color:#7a5a50;margin:0 0 10px;letter-spacing:.06em">YOUR PHONE CONSULTATION</p>
+<table role="presentation" style="border-collapse:collapse;width:100%;font-size:14px">
+<tr><td style="padding:6px 10px 6px 0;color:#7a5a50;vertical-align:top">Date &amp; time</td><td style="padding:6px 0;color:#3a2622">${esc(when)}</td></tr>
+<tr><td style="padding:6px 10px 6px 0;color:#7a5a50;vertical-align:top">Time zone</td><td style="padding:6px 0;color:#3a2622">Brisbane · AEST</td></tr>
+<tr><td style="padding:6px 10px 6px 0;color:#7a5a50;vertical-align:top">Duration</td><td style="padding:6px 0;color:#3a2622">15 minutes · complimentary</td></tr>
+<tr><td style="padding:6px 10px 6px 0;color:#7a5a50;vertical-align:top">Phone number</td><td style="padding:6px 0;color:#3a2622">${esc(client.phone||'Your supplied number')}</td></tr>
+</table></div>
+<p style="font-size:14px;line-height:1.6;margin:0 0 14px">Chanel will call you at the scheduled time to discuss your occasion, preferred makeup look and any questions.</p>
+<p style="font-size:13px;line-height:1.6;color:#7a5a50;margin:0">Your makeup appointment is booked separately after your quote and deposit. Need to change your consultation time? Simply reply to this email.</p>
+</div><p style="font-size:11px;color:#7a5a50;text-align:center">Chanel Monroe Makeup · Gold Coast · <a href="${site}" style="color:#7a5a50">website</a></p></div></body></html>`;
     const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','Idempotency-Key':`consult-${message.id}`},body:JSON.stringify({from:Deno.env.get('FROM_EMAIL')||'Chanel Monroe Makeup <enquiries@chanelmonroe.net>',to:[client.email],reply_to:Deno.env.get('BUSINESS_EMAIL')||'makeup@chanelmonroe.net',subject,html}),signal:AbortSignal.timeout(15000)});
     if(!sent.ok)throw Error('Mail service did not accept the message');
     await db(`crm_consultation_emails?id=eq.${message.id}`,{method:'PATCH',body:JSON.stringify({sent_at:new Date().toISOString()})});
