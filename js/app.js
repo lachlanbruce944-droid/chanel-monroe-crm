@@ -1308,7 +1308,8 @@
       if (editing) reset();
       editing = !editing;
       refresh();
-      if (editing) snapshot.find(({control}) => control.matches('input,select,textarea') && !control.disabled)?.control.focus();
+      // Opening Edit reveals controls without automatically launching the mobile keyboard.
+      // The user taps the particular field they want to change.
     };
     refresh();
   }
