@@ -506,6 +506,24 @@
       await DB.save('reminders', { ...r, status: 'skipped' });
     return b;
   }
+  async function archiveBooking(b) {
+    b = fresh(b);
+    if (!b.archivedAt) b = await DB.save('bookings', { ...b, status:'lost',
+      archivedAt:new Date().toISOString(), archivedBy:window.Auth?.current?.id || null,
+      statusBeforeArchive:b.status });
+    if (window.Connectors && (b.calendarSync || b.calendarStart || b.callAt)) {
+      const actions = b.callAt ? ['remove-block', 'remove-consult'] : ['remove-block'];
+      const results = await Promise.allSettled(actions.map(action => window.Connectors.request(action, { bookingId:b.id })));
+      if (results.some(result => result.status === 'rejected')) UI.toast('Archived in the CRM. Check Apple Calendar for the old event.', 'error');
+    }
+    return b;
+  }
+  async function restoreBooking(b) {
+    b = fresh(b);
+    if (!b.archivedAt) return b;
+    return DB.save('bookings', { ...b, status:b.statusBeforeArchive || 'open',
+      archivedAt:null, archivedBy:null, statusBeforeArchive:null });
+  }
   async function reopen(b) {
     b = await DB.save('bookings', { ...fresh(b), status: 'open', lostReason: '' });
     await log(b, 'status', 'Reopened');
@@ -614,7 +632,7 @@
     developerModeEnabled, setDeveloperMode, STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
     createEnquiry, scheduleCall, retryConsultationEmail, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
-    deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
+    archiveBooking, restoreBooking, deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
     generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };
 })();
