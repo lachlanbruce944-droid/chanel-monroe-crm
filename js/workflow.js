@@ -454,7 +454,13 @@
       if(patch.eventDate && patch.eventDate !== before.eventDate && ![calendarStart,calendarEnd].includes(patch.eventDate))
         throw new Error('Move the CRM calendar time block to the new event date before saving details.');
     }
-    b = await DB.save('bookings', { ...before, ...patch });
+    let nextBooking={...before,...patch};
+    if(window.Connectors?.automaticBlock && (!before.calendarStart || before.calendarTimeMode==='automatic') &&
+      ['eventDate','startTime','readyBy','lines','partySize'].some(k=>k in patch)){
+      nextBooking=window.Connectors.automaticBlock(nextBooking);
+      await window.Connectors.ensureBlock(nextBooking,false);
+    }
+    b = await DB.save('bookings', nextBooking);
     await log(b, 'edit', what);
     if (patch.eventDate !== undefined && patch.eventDate !== before.eventDate && idx(b.stage) >= idx('booked') && idx(b.stage) <= idx('day'))
       await generateEventReminders(b);

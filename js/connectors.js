@@ -25,9 +25,23 @@
   await Promise.all([refresh(),checkStripe()]);
  }
  function view(){return {title:'Settings',subtitle:'Apple Calendar, invoice payments and studio account',html:`<section class="card"><h2>Phone consultations</h2><p>Client times remain pending until Chanel approves in the CRM. Approval sends the booking email; the client does not confirm again.</p><p>Normally at least three days before makeup, with a recorded exception for short notice.</p><a class="btn" href="#/calendar">Open CRM calendar</a></section><section class="card"><h2>Connectors</h2><div class="connector-grid"><article class="card connector-card"><div class="connector-brand"></div><h2>Apple Calendar</h2><p id="appleStatus" role="status">Not checked</p><p>Sync approved consultations and makeup appointments to iCloud. Check Apple appointments for conflicts.</p><button class="btn" id="appleSetup">Connect Apple Calendar</button><button class="btn" id="appleCheck">Check connection</button><button class="btn" id="appleSync">Sync existing appointments</button></article><article class="card connector-card"><div class="connector-brand stripe">S</div><h2>Stripe</h2><p id="stripeStatus" role="status">Not checked</p><p>Deposit and final invoice payments. Stripe webhook confirmations automatically record payments and update invoice status. Booking approval stays with Chanel. Phone consultations are free.</p><button class="btn" id="stripeCheck" type="button">Check Stripe connection</button><a class="btn" href="https://dashboard.stripe.com" target="_blank" rel="noopener">Manage Stripe ↗</a><a class="btn" href="#/invoices">Open CRM invoices</a></article></div></section><section class="card"><h2>Business & account</h2><a class="btn" href="#/profile">Open profile & business settings</a></section>`,after:mount}}
- function bookingPanel(b){return `<section class="card"><h2>Makeup appointment time block</h2><p class="muted">Save exact start and finish times in Brisbane time to prevent CRM phone consultation conflicts.</p><form data-form="calendarBlock" data-id="${esc(b.id)}" class="form-grid"><label>Start · Brisbane<input type="datetime-local" name="calendarStart" value="${esc(brisbaneInput(b.calendarStart))}" required></label><label>Finish · Brisbane<input type="datetime-local" name="calendarEnd" value="${esc(brisbaneInput(b.calendarEnd))}" required></label><div class="span-2"><button class="btn" type="submit">Save CRM calendar time block</button></div></form></section>`}
+ function automaticBlock(b){
+  if(b.calendarTimeMode==='manual')return b;
+  if(!b.eventDate||!(b.startTime||b.readyBy))return b.calendarTimeMode==='automatic'?{...b,calendarStart:null,calendarEnd:null}:b;
+  const lines=b.lines||[],services=DB.list('services');
+  const minutes=lines.reduce((n,l)=>{const service=services.find(s=>s.id===l.serviceId);return n+Math.max(0,Number(service?.durationMins??l.durationMins??60))*Math.max(0,Number(l.qty)||0)},0)||180;
+  const time=b.startTime||b.readyBy;
+  if(!b.eventDate||!time)return b;
+  let start=+new Date(b.eventDate+'T'+time.slice(0,5)+':00+10:00');
+  if(!b.startTime)start-=minutes*60000;
+  if(!Number.isFinite(start))throw Error('Choose a valid appointment date and time');
+  return {...b,calendarStart:new Date(start).toISOString(),calendarEnd:new Date(start+minutes*60000).toISOString(),calendarBufferMins:Number(DB.setting('appointmentBufferMins',60)),calendarTimeMode:'automatic'};
+ }
+ function bookingPanel(b){const block=b.calendarTimeMode==='manual'||(b.calendarStart&&!b.calendarTimeMode)?b:automaticBlock(b);return `<section class="card"><div class="card-head"><h2>Makeup appointment</h2><span class="badge">${block.calendarTimeMode==='automatic'?'Automatic timing':'Saved timing'}</span></div><p class="muted">Brisbane time · service duration plus ${esc(block.calendarBufferMins??60)} minutes of booking buffer.</p><form data-form="calendarBlock" data-id="${esc(b.id)}" data-edit-label="Edit time" class="form-grid"><label>Start · Brisbane<input type="datetime-local" name="calendarStart" value="${esc(brisbaneInput(block.calendarStart))}" required></label><label>Finish · Brisbane<input type="datetime-local" name="calendarEnd" value="${esc(brisbaneInput(block.calendarEnd))}" required></label><div class="span-2"><button class="btn" type="submit">Save time</button></div></form>${!block.calendarStart?'<p class="callout">Add an event date and start or ready-by time to calculate the appointment.</p>':''}</section>`}
  async function ensureBlock(b,apple=true){
+  if(apple&&(!b.calendarStart||b.calendarTimeMode==='automatic')){const next=automaticBlock(b);if(next.calendarStart){await ensureBlock(next,false);b=await DB.save('bookings',next);}}
   const start=b.calendarStart?+new Date(b.calendarStart):null,end=b.calendarEnd?+new Date(b.calendarEnd):null;
+  if(start&&b.callAt&&+new Date(b.callAt)+15*60000>start)throw Error('The phone consultation must finish before makeup starts');
   for(const other of DB.list('bookings',x=>x.id!==b.id&&x.status!=='lost')){
    if(other.callAt&&!other.callLoggedAt&&['enquiry','call'].includes(other.stage)){
     const at=+new Date(other.callAt);
@@ -40,11 +54,11 @@
  }
  async function saveBlock(b,start,end){
   const a=new Date(start+':00+10:00'),z=new Date(end+':00+10:00');if(!Number.isFinite(+a)||!Number.isFinite(+z)||z<=a)throw Error('Choose a finish after the start');
-  const next={...b,calendarStart:a.toISOString(),calendarEnd:z.toISOString(),calendarSync:null};await ensureBlock(next,false);
+  const next={...b,calendarStart:a.toISOString(),calendarEnd:z.toISOString(),calendarTimeMode:'manual',calendarSync:null};await ensureBlock(next,false);
   if(b.callAt&&+new Date(b.callAt)+15*60000>=+a)throw Error('The phone consultation must finish before makeup starts');
   await DB.save('bookings',next);
   const result=await request(['booked','day'].includes(b.stage)?'sync-booking':'check-booking',{bookingId:b.id});if(result.skipped)UI.toast('Saved in CRM; Apple Calendar is not connected');
  }
  async function removeBlock(b){await request('remove-block',{bookingId:b.id});if(b.callAt)await request('remove-consult',{bookingId:b.id});await DB.save('bookings',{...b,calendarSync:null})}
- window.Connectors={view,bookingPanel,ensureBlock,saveBlock,removeBlock,brisbaneInput,request};
+ window.Connectors={automaticBlock,view,bookingPanel,ensureBlock,saveBlock,removeBlock,brisbaneInput,request};
 })();

@@ -7,3 +7,15 @@ test('completed or lost consultations do not block calendar',async()=>await cale
 test('invalid block ranges are rejected',async()=>await assert.rejects(()=>calendar().saveBlock({id:'job'},'2026-12-01T11:00','2026-12-01T10:00'),/finish/));
 test('workflow schedules through the authenticated owner service and does not advance pending call',async()=>{let call;const b={id:'job',stage:'enquiry'};const c={window:{},UI:{},DB:{get:()=>b,refresh:async()=>{},client:{functions:{invoke:async(name,input)=>{call={name,...input.body};return {data:{ok:true}}}}}}};vm.createContext(c);vm.runInContext(fs.readFileSync('js/workflow.js','utf8'),c);await c.window.Workflow.scheduleCall(b,'2026-12-01T01:00Z','urgent event');assert.equal(call.name,'consultation-manage');assert.equal(call.action,'schedule');assert.equal(call.exceptionReason,'urgent event');assert.equal(b.stage,'enquiry')});
 test('Cal confirmation does not satisfy CRM approval gate',()=>{const b={id:'job',stage:'enquiry',enquiryReviewedAt:'now',consultation:{status:'confirmed'}};const c={window:{},UI:{},DB:{get:store=>store==='bookings'?b:{},list:()=>[],setting:(_k,f)=>f}};vm.createContext(c);vm.runInContext(fs.readFileSync('js/workflow.js','utf8'),c);assert.equal(c.window.Workflow.checkNext(b).ok,false)});
+test('automatic timing sums service quantities and applies Brisbane ready-by time',()=>{
+ const c={window:{},UI:{esc:String},DB:{list:()=>[{id:'bridal',durationMins:90},{id:'party',durationMins:60}],setting:()=>45}};
+ vm.createContext(c);vm.runInContext(fs.readFileSync('js/connectors.js','utf8'),c);
+ const block=c.window.Connectors.automaticBlock({eventDate:'2026-12-01',readyBy:'12:00',lines:[{serviceId:'bridal',qty:1},{serviceId:'party',qty:2}]});
+ assert.equal(block.calendarStart,'2026-11-30T22:30:00.000Z');assert.equal(block.calendarEnd,'2026-12-01T02:00:00.000Z');assert.equal(block.calendarBufferMins,45);
+ const manual={calendarTimeMode:'manual',calendarStart:'2026-12-01T00:00:00Z'};assert.equal(c.window.Connectors.automaticBlock(manual),manual);
+});
+test('automatic block persists once before booking conflict checks',async()=>{
+ let saves=0;const c={window:{},UI:{esc:String},DB:{list:()=>[],setting:()=>60,save:async(_s,b)=>{saves++;return b},client:{functions:{invoke:async()=>({data:{ok:true}})}}}};
+ vm.createContext(c);vm.runInContext(fs.readFileSync('js/connectors.js','utf8'),c);
+ await c.window.Connectors.ensureBlock({id:'b',eventDate:'2026-12-01',startTime:'09:00'});assert.equal(saves,1);
+});

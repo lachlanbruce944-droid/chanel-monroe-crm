@@ -289,16 +289,19 @@
 
           ${window.Connectors ? Connectors.bookingPanel(b) : ''}
           <section class="card" id="details">
-            <div class="card-head"><h2>Event details</h2></div>
+            <div class="card-head"><h2>Event details</h2><span class="eyebrow">Occasion & preparation</span></div>
             ${clashes.length ? `<p class="warn">Heads up: ${clashes.map(x => esc(W.clientName(W.clientOf(x)))).join(', ')} also booked on this date.</p>` : ''}
             <form data-form="details" data-id="${b.id}" class="form-grid">
+              <div class="span-2 detail-group"><h3>Occasion & timing</h3><p class="muted">All appointment times use Brisbane time.</p></div>
               <label>Event type<select name="eventType">${[...new Set(['', ...W.EVENT_TYPES, b.eventType || ''])].map(e => `<option ${e === b.eventType ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></label>
               <label>Event date<input type="date" name="eventDate" value="${esc(b.eventDate)}"></label>
               <label>Ready by<input type="time" name="readyBy" value="${esc(b.readyBy)}"></label>
               <label>Start time<input type="time" name="startTime" value="${esc(b.startTime || '')}"></label>
+              <div class="span-2 detail-group"><h3>Venue & people</h3></div>
               <label class="span-2">Location / address<input name="location" value="${esc(b.location)}" placeholder="Venue, suburb or full address"></label>
               <label>People needing makeup<input type="number" min="1" name="partySize" value="${esc(b.partySize || 1)}"></label>
               <label>Trial<select name="trial">${['', 'Yes', 'No', 'Not sure', 'Done'].map(o => `<option ${o === (ans.trial || '') ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+              <div class="span-2 detail-group"><h3>Style & preparation</h3></div>
               <label class="span-2">Look / notes<textarea name="look" rows="3">${esc(ans.look || '')}</textarea></label>
               <div class="span-2 row end"><button class="btn sm">Save details</button></div>
             </form>
@@ -335,6 +338,7 @@
               <label>Deposit<input type="number" min="0" step="0.01" value="${esc(b.depositAmount)}" data-change="money" data-id="${b.id}" data-field="depositAmount" placeholder="${t.deposit} (${W.profile().depositPercent}%)"></label>
               <dl><dt>Total</dt><dd>${money(t.total)}</dd>${t.gst ? `<dt>incl. GST</dt><dd>${money(t.gst)}</dd>` : ''}<dt>Deposit</dt><dd>${money(t.deposit)}</dd><dt>Paid</dt><dd>${money(t.paid)}</dd><dt class="strong">Balance</dt><dd class="strong">${money(t.balance)}</dd></dl>
             </div>
+            <div class="row end"><button type="button" class="btn primary" data-act="quoteStripe" data-id="${b.id}">Review quote for Stripe</button></div>
           </section>
 
           ${b.callLoggedAt ? `<section class="card"><h2>Service notes & additional costs</h2><form data-form="serviceNotes" data-id="${b.id}" class="form-grid"><label class="span-2">Additional notes<textarea name="serviceNotes" rows="4">${esc(b.serviceNotes || '')}</textarea></label><label>Agreed additional costs<input name="additionalCosts" type="number" min="0" step="0.01" value="${esc(b.additionalCosts || 0)}"></label><label>Cost description<input name="additionalCostsReason" value="${esc(b.additionalCostsReason || '')}"></label><div class="span-2"><button class="btn sm">Save service notes & costs</button></div></form></section>` : ''}
@@ -975,6 +979,15 @@
       rerender();
       if (DB.get('bookings', d.id).stage === 'updates') document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' });
     },
+    async quoteStripe(d) {
+      let b=DB.get('bookings',d.id);
+      if(b.stage==='updates'){if(!await tryAdvance(d.id))return;b=DB.get('bookings',d.id);}
+      const type=W.idx(b.stage)>=W.idx('invoice')?'final':'deposit';
+      const invoice=DB.find('invoices',i=>i.bookingId===b.id&&i.type===type);
+      if(!invoice)throw Error('Complete and approve the phone consultation before preparing the quote');
+      rerender();
+      await Actions.stripeInvoice({id:invoice.id,arg:'create'});
+    },
     async sendQuote(d) {
       const r = await tryAdvance(d.id);
       rerender();
@@ -1316,7 +1329,7 @@
           value.textContent = display || '—';
         }
       }
-      button.innerHTML=icon(editing?'check':'edit')+(editing?(container.tagName==='FORM'?'Cancel':'Done editing'):'Edit');
+      button.innerHTML=icon(editing?'check':'edit')+(editing?(container.tagName==='FORM'?'Cancel':'Done editing'):(container.dataset.editLabel||'Edit'));
       button.setAttribute('aria-label',(editing?'Finish editing ':'Edit ')+sectionLabel);
       button.setAttribute('aria-expanded',String(editing));
     }
