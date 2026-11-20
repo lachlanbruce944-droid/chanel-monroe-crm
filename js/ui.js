@@ -113,7 +113,9 @@
       });
       if (onOpen) onOpen(form, close);
       const first = form.querySelector('.modal-body input:not([type=hidden]), .modal-body select, .modal-body textarea');
-      if (first) setTimeout(() => first.focus(), 30);
+      // Do not summon the mobile keyboard when a modal opens. Editing requires a deliberate tap.
+      const closeButton = form.querySelector('.modal-close, [data-close], button[type="button"]');
+      if (closeButton) setTimeout(() => closeButton.focus({preventScroll:true}), 30);
     });
   }
 
