@@ -335,7 +335,7 @@
     const saved = await DB.save('invoices', {
       ...(inv || {}), bookingId: b.id, clientId: b.clientId, type,
       number: inv?.number || await nextInvoiceNumber(),
-      items, total, gst: p.gstRegistered ? total / 11 : 0, status: 'sent',
+      items, total, gst: p.gstRegistered ? total / 11 : 0, status: 'draft',
       issuedAt: inv?.issuedAt || today(),
       dueAt: inv?.dueAt || ymd(addDays(new Date(), type === 'deposit' ? (+p.depositDueDays || 3) : (+p.paymentTermsDays || 7)))
     });
@@ -496,7 +496,7 @@
     const b = DB.get('bookings', p.bookingId);
     if (b) {
       for (const inv of DB.list('invoices', x => x.bookingId === b.id && x.status === 'paid')) {
-        await DB.save('invoices', { ...inv, status: 'sent', paidAt: '' });
+        await DB.save('invoices', { ...inv, status: inv.stripeInvoiceId ? 'open' : 'draft', paidAt: '' });
       }
       await refreshInvoices(b);
       await log(b, 'payment', `Removed ${money(p.amount)} ${p.type} payment`);

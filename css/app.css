@@ -125,7 +125,7 @@ a.list-row:hover { background: #fdf8f6; }
 /* ---------- badges ---------- */
 .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; background: var(--line-2); color: var(--ink-2); white-space: nowrap; text-transform: capitalize; }
 .badge.lost { background: #eee; color: #777; }
-.badge.inv-paid { background: #e3f1e9; color: var(--ok); } .badge.inv-sent { background: #fbf0e1; color: var(--warn); } .badge.inv-overdue { background: #f9e3e4; color: var(--bad); }
+.badge.inv-paid { background: #e3f1e9; color: var(--ok); } .badge.inv-sent { background: #fbf0e1; color: var(--warn); } .badge.inv-draft { background: #f1ece8; color: var(--muted, #6b5a52); } .badge.inv-open { background: #fbf0e1; color: var(--warn); } .badge.inv-void { background: #eee; color: #666; text-decoration: line-through; } .badge.inv-overdue { background: #f9e3e4; color: var(--bad); }
 .s-enquiry { --c: var(--s-enquiry); } .s-call { --c: var(--s-call); } .s-updates { --c: var(--s-updates); } .s-deposit { --c: var(--s-deposit); } .s-booked { --c: var(--s-booked); }
 .s-day { --c: var(--s-day); } .s-invoice { --c: var(--s-invoice); } .s-review { --c: var(--s-review); } .s-complete { --c: var(--s-complete); }
 .badge[class*=" s-"] { background: color-mix(in srgb, var(--c) 16%, white); color: color-mix(in srgb, var(--c) 80%, black); }

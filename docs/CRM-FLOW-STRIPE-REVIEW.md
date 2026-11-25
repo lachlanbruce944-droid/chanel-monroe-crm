@@ -75,3 +75,9 @@ Original quote AUD 1,000.00, deposit AUD 300.00 received, agreed on-day extras A
 44 CRM tests pass, including five new checks for concise services, paired payment statuses, cancelled review making no Stripe request, confirmed review reaching the existing action, and stale invoice totals blocking creation. A pre-existing email wording test was updated to accept “awaiting” as well as “pending”; its pending-approval requirement remains intact. Browser checks confirmed formatted amounts, deliberate Edit controls, hidden grouping fields and the paired invoice tracker using fictional data.
 
 A signed-in live Stripe status check, Stripe sandbox invoice/payment/webhook replay, and actual client email delivery remain necessary before calling the integration fully ready.
+
+## Update — 26 November 2026
+
+- `crm-stripe` v4: Stripe invoices are itemised from the CRM invoice lines (services, extras, travel, discount, "Less deposit received") when the lines add up exactly to the amount due; otherwise one line for the amount due.
+- CRM invoice status now mirrors reality: `draft` when raised in the CRM, `open` ("Payment link ready") once the Stripe link exists, `paid` only after `crm_apply_stripe_payment` verifies the amount, `void` when voided or marked uncollectible in Stripe. Previously invoices were marked `sent` as soon as they were prepared.
+- Still required before any trial: the owner saves `STRIPE_SECRET_KEY` (sandbox `sk_test_…`) and `STRIPE_WEBHOOK_SECRET` (`whsec_…` from the "chanel-monroe-crm" sandbox webhook) in Supabase → Edge Functions → Secrets. Until then the function answers 503 "not connected".

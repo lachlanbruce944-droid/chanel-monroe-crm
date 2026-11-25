@@ -552,7 +552,7 @@
       actions: `<button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="create">${inv.stripeInvoiceId ? "View payment link" : "Review for Stripe"}</button><button class="btn sm" data-act="stripeInvoice" data-id="${inv.id}" data-arg="refresh">Refresh payment status</button><button class="btn primary sm" data-act="print">${icon('printer')} Print / save PDF</button>`,
       html: `<article class="invoice">
         <header><div>${avatarHtml(p, 'inv-logo')}<h2>${esc(p.businessName)}</h2><p>${esc(p.artistName)}${p.abn ? '<br>ABN ' + esc(p.abn) : ''}${p.phone ? '<br>' + esc(p.phone) : ''}${p.email ? '<br>' + esc(p.email) : ''}</p></div>
-          <div class="inv-meta"><h1>${p.gstRegistered ? 'Tax invoice' : 'Invoice'}</h1><p><b>${esc(inv.number)}</b><br>Issued ${fmtDate(inv.issuedAt)}<br>Due ${fmtDate(inv.dueAt)}</p><span class="badge inv-${inv.status}">${inv.status}</span></div></header>
+          <div class="inv-meta"><h1>${p.gstRegistered ? 'Tax invoice' : 'Invoice'}</h1><p><b>${esc(inv.number)}</b><br>Issued ${fmtDate(inv.issuedAt)}<br>Due ${fmtDate(inv.dueAt)}</p><span class="badge inv-${inv.status}">${({draft:"Draft",sent:"Draft",open:"Payment link ready",paid:"Paid",void:"Void"})[inv.status]||esc(inv.status)}</span></div></header>
         <section class="bill"><h3>Bill to</h3><p>${esc(W.clientName(c))}${c.email ? '<br>' + esc(c.email) : ''}${c.phone ? '<br>' + esc(c.phone) : ''}</p>
           ${b.eventDate ? `<h3>Booking</h3><p>${esc(b.eventType || '')} · ${fmtDate(b.eventDate)}${b.location ? '<br>' + esc(b.location) : ''}</p>` : ''}</section>
         <table class="table"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>

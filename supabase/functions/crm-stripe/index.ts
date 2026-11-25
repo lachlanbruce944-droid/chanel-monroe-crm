@@ -29,6 +29,9 @@ Deno.serve(async req=>{
    await check(await admin.rpc('crm_apply_stripe_payment',{p_invoice:id,p_stripe:si.id,p_cents:si.amount_paid}));
   }
   await check(await admin.rpc('crm_set_stripe_invoice',{p_invoice:id,p_patch:{stripeStatus:si.status,stripeUrl:si.hosted_invoice_url||null,stripeSyncedAt:new Date().toISOString()}}));
+  // Mirror the Stripe state on the CRM invoice (paid is set only by crm_apply_stripe_payment after amount checks).
+  const crmStatus=si.status==='open'?'open':si.status==='void'||si.status==='uncollectible'?'void':null;
+  if(crmStatus)await check(await admin.from('crm_invoices').update({status:crmStatus,updated_at:new Date().toISOString()}).eq('id',id).neq('status','paid'));
  }
  try{
   const signature=req.headers.get('stripe-signature');
@@ -69,7 +72,11 @@ Deno.serve(async req=>{
   if(si.status==='draft'){
    const amount=Number(si.metadata.crmAmountCents);
    if(!Number.isSafeInteger(amount)||amount<50)throw Error('Invalid invoice amount');
-   await stripe.invoiceItems.create({customer:String(si.customer),invoice:si.id,currency:'aud',amount,description:`${inv.number} — ${inv.type==='deposit'?'deposit':'remaining balance'}`},{idempotencyKey:'crm-line-'+inv.id});
+   // Itemise from the CRM invoice lines when they add up exactly to the amount due; otherwise one line for the amount due.
+   const lines=(Array.isArray(inv.items)?inv.items:[]).map((it:any)=>({desc:String(it.desc||'Item').slice(0,250),cents:Math.round((Number(it.qty)||1)*(Number(it.price)||0)*100)})).filter((l:any)=>Number.isSafeInteger(l.cents)&&l.cents!==0);
+   const itemised=lines.length>0&&lines.reduce((n:number,l:any)=>n+l.cents,0)===amount;
+   if(itemised){for(let i=0;i<lines.length;i++)await stripe.invoiceItems.create({customer:String(si.customer),invoice:si.id,currency:'aud',amount:lines[i].cents,description:lines[i].desc},{idempotencyKey:`crm-line-${inv.id}-${i}`});}
+   else await stripe.invoiceItems.create({customer:String(si.customer),invoice:si.id,currency:'aud',amount,description:`${inv.number} — ${inv.type==='deposit'?'deposit':'remaining balance'}`},{idempotencyKey:'crm-line-'+inv.id});
    si=await stripe.invoices.finalizeInvoice(si.id,{auto_advance:false},{idempotencyKey:'crm-finalize-'+inv.id});
   }
   await reconcile(si);
