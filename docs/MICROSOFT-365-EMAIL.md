@@ -41,3 +41,12 @@ A delta cursor expired by Microsoft requires resaving the import date and re-ena
 - https://learn.microsoft.com/en-us/graph/api/message-delta?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0
 - https://learn.microsoft.com/en-us/graph/api/message-list-attachments?view=graph-rest-1.0
+
+## Client profile message log — 26 November 2026
+The client profile now displays its linked message history, including reviewed emails. Each matched message offers **Save details to profile**: Chanel reviews an excerpt and appends it to private notes, allergies/sensitivities, or shades/products. Existing details remain; source sender/date/subject and an activity entry record the origin. Repeating the same excerpt from the same email into the same field is deduplicated. Saving does not mark the email reviewed or change booking dates or prices.
+
+Deploy `supabase/email_profile_details.sql` before the frontend. The RPC uses caller permissions and requires the owner account; anonymous callers cannot execute it. Client and activity updates run in one transaction under a client row lock.
+
+Verified live mailbox setting: makeup@chanelmonroe.net. On 26 November the CRM importer was disabled and Microsoft tenant/application IDs were unset. The connected Outlook app identified the correct mailbox, but its authorization does not configure the CRM server's importer. Complete the existing Microsoft application setup, test, enable and schedule import before expecting automatic incoming messages. No real client messages were imported or profiles changed during this update.
+
+Validation: 53 CRM automated checks; database function deployed, invoker mode and execution permissions verified. Browser and incoming-mail end-to-end validation remains pending Microsoft setup. Existing Supabase advisor notices were unchanged; the new RPC has no security-definer privileges.

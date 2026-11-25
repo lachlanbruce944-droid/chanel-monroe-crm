@@ -454,6 +454,7 @@
               <label class="span-2 check"><input type="checkbox" name="marketingOk" ${c.marketingOk ? 'checked' : ''}> Happy to receive offers & updates</label>
               <div class="span-2 row end"><button class="btn sm">Save client</button></div>
             </form></section>
+          ${window.EmailConnector ? EmailConnector.clientPanel(c) : ''}
           <section class="card"><div class="card-head"><h2>Photos</h2></div>
             ${photos.length ? `<div class="photo-grid">${photos.map(p => `<button class="photo" data-act="viewPhoto" data-id="${p.id}">${p.mediaType === 'video' ? '<span aria-label="Video">▶ Video</span>' : `<img data-photo="${p.id}" alt="">`}<span>${esc(p.kind)}</span></button>`).join('')}</div>` : empty('No photos yet.')}</section>
         </div>

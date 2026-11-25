@@ -12,9 +12,25 @@
  function messages(){return DB.missing?.emails?[]:DB.list('emails');}
  function messageCard(m,allowLink=false){
   const link=safeLink(m.webLink),reviewed=!!m.reviewedAt;
-  return `<article class="card"><div class="card-head"><h3>${esc(m.subject||'Client email')}</h3><span class="badge">${reviewed?'Reviewed':'New client details'}</span></div><p class="small muted">${esc(m.sender)} · ${esc(fmtDateTime(m.receivedAt))}</p><details><summary>Read client message</summary><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(m.bodyText||'(No message text)')}</p></details>${(m.attachments||[]).length?`<p class="small">Attachments: ${m.attachments.map(a=>esc(a.name)).join(', ')}</p>`:''}${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">View in Outlook</a>`:''}${!reviewed?`<button class="btn sm" type="button" data-mail-action="${allowLink&&!m.bookingId?'link':'review'}" data-message-id="${esc(m.id)}">${allowLink&&!m.bookingId?'Link to enquiry & review':'Mark reviewed'}</button>`:''}</article>`;
+  return `<article class="card"><div class="card-head"><h3>${esc(m.subject||'Client email')}</h3><span class="badge">${reviewed?'Reviewed':'New client details'}</span></div><p class="small muted">${esc(m.sender)} · ${esc(fmtDateTime(m.receivedAt))}</p><details><summary>Read client message</summary><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(m.bodyText||'(No message text)')}</p></details>${(m.attachments||[]).length?`<p class="small">Attachments: ${m.attachments.map(a=>esc(a.name)).join(', ')}</p>`:''}${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">View in Outlook</a>`:''}${m.clientId?`<button class="btn sm" type="button" data-mail-action="profile" data-message-id="${esc(m.id)}">Save details to profile</button>`:''}${!reviewed?`<button class="btn sm" type="button" data-mail-action="${allowLink&&!m.bookingId?'link':'review'}" data-message-id="${esc(m.id)}">${allowLink&&!m.bookingId?'Link to enquiry & review':'Mark reviewed'}</button>`:''}</article>`;
  }
  function bookingPanel(b){const list=messages().filter(m=>m.bookingId===b.id).sort((a,z)=>z.receivedAt.localeCompare(a.receivedAt));return `<section class="card"><div class="card-head"><h2>Client messages</h2><span class="badge">${list.filter(m=>!m.reviewedAt).length} new</span></div>${list.length?list.map(m=>messageCard(m)).join(''):'<p class="muted">Email replies appear here after Microsoft 365 is connected. New details are saved for review before booking details change.</p>'}</section>`;}
+ function clientPanel(c){
+  const list=messages().filter(m=>m.clientId===c.id).sort((a,z)=>z.receivedAt.localeCompare(a.receivedAt));
+  return `<section class="card"><div class="card-head"><h2>Client messages</h2><span class="badge">${list.length}</span></div><p class="small muted">makeup@chanelmonroe.net · Message log</p>${list.length?list.map(m=>messageCard(m)).join(''):'<p class="muted">Client emails appear here after the Microsoft 365 importer is connected and enabled.</p>'}</section>`;
+ }
+ async function saveProfile(id){
+  const m=DB.get('emails',id),c=m?.clientId&&DB.get('clients',m.clientId);
+  if(!c)throw Error('Link this message to an enquiry first.');
+  let saved=false;
+  await UI.modal({title:'Save email details to profile',wide:true,submitLabel:'Add to profile',body:`<p><b>${esc([c.firstName,c.lastName].filter(Boolean).join(' '))}</b> · ${esc(c.email||'')}</p><p class="small muted">From ${esc(m.sender)} · ${esc(m.subject)} · ${esc(fmtDateTime(m.receivedAt))}</p><details open><summary>Original message</summary><p style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto">${esc(m.bodyText||'(No message text)')}</p></details><label>Save to<select name="field"><option value="notes">Private notes</option><option value="allergies">Allergies & sensitivities</option><option value="shades">Shades / products</option></select></label><label>Details to add<textarea name="details" rows="5" maxlength="10000" required placeholder="Copy the relevant details from the message, then review before saving."></textarea></label><p class="small muted">Adds to existing information with the email source. Booking dates, approvals and prices stay as they are.</p>`,onSubmit:async values=>{
+   const details=(values.details||'').trim();if(!details)throw Error('Enter the details to save.');
+   const {data,error}=await DB.client.rpc('crm_mail_save_profile',{p_message:id,p_field:values.field,p_details:details});
+   if(error)throw Error(error.message);if(!data?.ok)throw Error('Profile was not updated.');
+   await DB.refresh();UI.toast(data.duplicate?'These details are already saved.':'Details added to client profile.');saved=true;return true;
+  }});
+  if(saved)window.dispatchEvent(new Event('hashchange'));
+ }
  async function refresh(){
   const status=document.getElementById('mailStatus');if(!status)return;
   try{const r=await call('status');status.textContent=(r.enabled?'Import enabled':r.configured?'Configured · import paused':'Not connected · set up when ready')+` · ${r.pending} messages to review (${r.unmatched} need linking)`;
@@ -41,7 +57,7 @@
    await UI.modal({title:'Link client message',submitLabel:'Link & mark reviewed',body:`<p>From ${esc(m.sender)} · ${esc(m.subject)}. Check the client before linking.</p><label>Enquiry<select name="bookingId" required><option value="">Choose an enquiry</option>${bookings.map(b=>{const c=DB.get('clients',b.clientId);return `<option value="${esc(b.id)}">${esc([c?.firstName,c?.lastName,b.eventType,b.eventDate].filter(Boolean).join(' · '))}</option>`}).join('')}</select></label>`,onSubmit:async values=>{await call('review',{messageId:id,bookingId:values.bookingId});return true;}});
   }else await call('review',{messageId:id});
   await DB.refresh();await refresh();
-  document.querySelectorAll('[data-message-id="'+id+'"]').forEach(button=>{if(DB.get('emails',id)?.reviewedAt){button.textContent='Reviewed';button.disabled=true;}});
+  document.querySelectorAll('[data-message-id="'+id+'"]').forEach(button=>{if(['review','link'].includes(button.dataset.mailAction)&&DB.get('emails',id)?.reviewedAt){button.textContent='Reviewed';button.disabled=true;}});
  }
  document.addEventListener('click',async e=>{
   const button=e.target.closest('[data-mail-action]');if(!button)return;
@@ -49,6 +65,7 @@
   try{
    const action=button.dataset.mailAction;
    if(action==='setup')await setup();else if(action==='inbox')await inbox();
+   else if(action==='profile')await saveProfile(button.dataset.messageId);
    else if(action==='review'||action==='link')await review(button.dataset.messageId,action==='link');
    else{
     const r=await call(action);
@@ -57,5 +74,5 @@
    }
   }catch(err){UI.toast(err.message,'error')}finally{if(button.textContent!=='Reviewed')button.disabled=false;}
  });
- window.EmailConnector={panel,mount:refresh,bookingPanel,call};
+ window.EmailConnector={panel,mount:refresh,bookingPanel,clientPanel,call};
 })();
