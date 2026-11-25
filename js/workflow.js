@@ -599,7 +599,7 @@
     const c = clientOf(b); const p = profile(); const t = totals(b);
     const invoice = DB.find('invoices', i => i.bookingId === b.id && i.type === (idx(b.stage) < idx('booked') ? 'deposit' : 'final'));
     const stripeLink = invoice?.stripeUrl && /^https:\/\/invoice\.stripe\.com\//.test(invoice.stripeUrl) ? invoice.stripeUrl : '';
-    const pay = stripeLink || [p.bankAccountName && `Account name: ${p.bankAccountName}`, p.bsb && `BSB: ${p.bsb}`, p.accountNumber && `Account: ${p.accountNumber}`, p.payId && `PayID: ${p.payId}`].filter(Boolean).join('\n') || '[add your payment details in Profile]';
+    const pay = (stripeLink ? `Pay securely with Apple Pay or Google Pay where available, or use a card. Open the invoice and tap your preferred payment option:\n${stripeLink}` : '') || [p.bankAccountName && `Account name: ${p.bankAccountName}`, p.bsb && `BSB: ${p.bsb}`, p.accountNumber && `Account: ${p.accountNumber}`, p.payId && `PayID: ${p.payId}`].filter(Boolean).join('\n') || '[add your payment details in Profile]';
     const lines = (b.lines || []).map(l => `• ${l.name}${+l.qty > 1 ? ' × ' + l.qty : ''} — ${money(l.qty * l.price)}`).join('\n') || '• [add services to the quote]';
     return {
       first: c.firstName || 'there', artist: (p.artistName || '').split(' ')[0] || 'Chanel', business: p.businessName,
