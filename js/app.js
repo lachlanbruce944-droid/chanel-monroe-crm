@@ -286,6 +286,7 @@
       <div class="detail">
         <div class="detail-main">
           ${nextCard}
+          ${ans.website?.candidateClientId ? `<p class="warn">Possible existing client. <a href="#/client/${encodeURIComponent(ans.website.candidateClientId)}">Review the email match</a> before transferring details.</p>` : ''}
 
           ${window.Connectors ? Connectors.bookingPanel(b) : ''}
           ${window.EmailConnector ? EmailConnector.bookingPanel(b) : ''}
@@ -369,7 +370,7 @@
 
           <section class="card">
             <div class="card-head"><h2>Payments</h2><button class="btn sm" data-act="payment" data-id="${b.id}" data-arg="${si < W.idx('booked') ? 'deposit' : 'final'}">${icon('plus')} Payment</button></div>
-            ${invoices.length ? `<ul class="list inv">${invoices.map(i => `<li><a class="list-row" href="#/invoice/${i.id}"><div class="grow"><strong>${esc(i.number)}</strong><small>${i.type === 'deposit' ? 'Deposit' : 'Final'} · due ${fmtShort(i.dueAt)}</small></div><span>${money(i.total)}</span><span class="badge inv-${i.status}">${i.status}</span></a></li>`).join('')}</ul>` : '<p class="muted small">Invoices are created automatically when you send the quote and when the day is done.</p>'}
+            ${invoices.length ? `<ul class="list inv">${invoices.map(i => `<li><a class="list-row" href="#/invoice/${i.id}"><div class="grow"><strong>${esc(i.number)}</strong><small>${i.type === 'deposit' ? 'Deposit' : 'Final'} · due ${fmtShort(i.dueAt)}</small></div><span>${money(i.total)}</span><span class="badge inv-${i.status}">${i.status}</span></a></li>`).join('')}</ul>` : '<p class="muted small">Draft invoices appear after quote approval and after the appointment.</p>'}
             ${pays.length ? `<ul class="list pays">${pays.map(p => `<li class="list-row"><div class="grow"><strong>${money(p.amount)}</strong><small>${esc(p.type)} · ${esc(p.method || '')} · ${fmtShort(p.paidAt)}</small></div><button class="icon-btn" data-act="deletePayment" data-id="${p.id}" title="Remove payment">${icon('x')}</button></li>`).join('')}</ul>` : ''}
           </section>
 
@@ -906,9 +907,10 @@
       if (key) openComposer(d.id, key);
     },
     async stripeInvoice(d) {
-      const invoice=DB.get('invoices',d.id);if(!invoice)throw Error('Invoice not found');
+      let invoice=d.preview || DB.get('invoices',d.id);if(!invoice)throw Error('Invoice not found');
       const booking=DB.get('bookings',invoice.bookingId);if(!booking)throw Error('Booking not found');
-      if(d.arg==='create'&&!invoice.stripeInvoiceId){
+      let approval;
+      if(d.arg==='create'&&!invoice.stripeInvoiceId && !invoice.approvalLocked){
         const c=W.clientOf(booking),totals=W.totals(booking);
         const payments=DB.list('payments',p=>p.bookingId===booking.id);
         const paid=payments.filter(p=>invoice.type==='deposit'?p.type==='deposit':p.type!=='deposit').reduce((n,p)=>n+Math.round(Number(p.amount)*100),0);
@@ -919,13 +921,19 @@
         if(!(due>=0.50))throw Error('There is no payable balance of at least $0.50');
         const confirmed=await modal({title:invoice.type==='deposit'?'Review deposit':'Review final invoice',submitLabel:'Confirm & create Stripe link',wide:true,
           body:`<div class="review-banner">${icon('file')} Check the details before creating the payment link.</div>
-          <dl class="kv"><dt>Client</dt><dd>${esc(W.clientName(c))}</dd><dt>Email</dt><dd>${esc(c.email)}</dd><dt>Appointment</dt><dd>${booking.eventDate?fmtDate(booking.eventDate):'Not set'}${booking.readyBy?' · Ready by '+fmtTime(booking.readyBy):''}</dd><dt>Location</dt><dd>${esc(booking.clientAddress||booking.location||'Not set')}</dd></dl>
+          <dl class="kv"><dt>Client</dt><dd>${esc(W.clientName(c))}</dd><dt>Email</dt><dd>${esc(c.email)}</dd><dt>Appointment</dt><dd>${booking.eventDate?fmtDate(booking.eventDate):'Not set'}${booking.readyBy?' · Ready by '+fmtTime(booking.readyBy):''}</dd><dt>Location</dt><dd>${esc(booking.clientAddress||booking.location||'Not set')}</dd><dt>Invoice due</dt><dd>${invoice.dueAt?fmtDate(invoice.dueAt):'To be set'}</dd></dl>
           <table class="table"><thead><tr><th>Charge</th><th class="num">Amount · AUD</th></tr></thead><tbody>${(invoice.items||[]).map(item=>`<tr><td>${esc(item.desc)}${item.qty>1?' × '+esc(item.qty):''}</td><td class="num amount">${money(item.qty*item.price)}</td></tr>`).join('')}</tbody></table>
           <dl class="review-totals"><dt>Booking total</dt><dd>${money(totals.total)}</dd><dt>Deposit received</dt><dd>${money(totals.depositPaid)}</dd><dt>Additional costs</dt><dd>${money(totals.additionalCosts)}</dd><dt>${invoice.type==='deposit'?'Deposit due now':'Final amount due'}</dt><dd class="amount due-now">${money(due)}</dd></dl>
           <p class="small muted">This creates and finalises a Stripe invoice. It does not email the client or charge a card. Review the client message separately before sending.</p>`,onSubmit:()=>true});
         if(!confirmed)return;
+        approval={email:c.email, items:invoice.items, amountCents:Math.round(due*100), dueAt:invoice.dueAt};
+        if(d.preview){
+          if(!await tryAdvance(booking.id))return;
+          invoice=DB.find('invoices',i=>i.bookingId===booking.id&&i.type===invoice.type);
+          if(!invoice)throw Error('Could not prepare the reviewed invoice');
+        }
       }
-      const { data, error } = await DB.client.functions.invoke('crm-stripe', { body: { action: d.arg, invoiceId: d.id } });
+      const { data, error } = await DB.client.functions.invoke('crm-stripe', { body: { action: d.arg, invoiceId: invoice.id, approval } });
       if (error || !data?.ok) throw Error(data?.error || error?.message || 'Stripe invoice connection unavailable');
       await DB.refresh(); rerender();
       if (data.url && /^https:\/\/invoice\.stripe\.com\//.test(data.url)) await modal({title:'Stripe invoice payment link',hideSubmit:true,cancelLabel:'Done',body:`<p>Share this link with the client to collect their invoice payment.</p><label>Payment link<input readonly value="${esc(data.url)}"></label><a class="btn primary" href="${esc(data.url)}" target="_blank" rel="noopener">Open Stripe invoice ↗</a><p class="small muted">Payment is recorded after Stripe verification. Creating this link does not email the client or charge their card.</p>`});
@@ -982,8 +990,8 @@
       if (DB.get('bookings', d.id).stage === 'updates') document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' });
     },
     async quoteStripe(d) {
-      let b=DB.get('bookings',d.id);
-      if(b.stage==='updates'){if(!await tryAdvance(d.id))return;b=DB.get('bookings',d.id);}
+      const b=DB.get('bookings',d.id);
+      if(b.stage==='updates')return Actions.stripeInvoice({arg:'create',preview:W.invoiceDraft(b,'deposit')});
       const type=W.idx(b.stage)>=W.idx('invoice')?'final':'deposit';
       const invoice=DB.find('invoices',i=>i.bookingId===b.id&&i.type===type);
       if(!invoice)throw Error('Complete and approve the phone consultation before preparing the quote');
@@ -991,6 +999,9 @@
       await Actions.stripeInvoice({id:invoice.id,arg:'create'});
     },
     async sendQuote(d) {
+      const booking=DB.get('bookings',d.id);
+      const draft=W.invoiceDraft(booking,'deposit');
+      if(!await confirmBox(`Approve the ${money(draft.total)} deposit request and open the quote composer?`, 'Approve quote'))return;
       const r = await tryAdvance(d.id);
       rerender();
       if (r) openComposer(d.id, 'quote');
@@ -998,9 +1009,9 @@
     async advance(d) {
       const b = DB.get('bookings', d.id);
       const from = b.stage;
+      if(from==='updates')return Actions.sendQuote(d);
       const r = await tryAdvance(d.id); rerender();
       if (r && from === 'day') openComposer(d.id, 'final_invoice');
-      if (r && from === 'updates') openComposer(d.id, 'quote');
     },
     async back(d) { await W.moveBack(d.id); toast('Moved back a step'); rerender(); },
     async payment(d) {

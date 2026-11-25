@@ -32,10 +32,9 @@
       const u = this.session?.user;
       if (!u) { this.current = null; this.status = 'signed-out'; return; }
       const name = u.user_metadata?.name || '';
-      const { data: state, error } = await sb.rpc('crm_claim_owner', { p_name: name || null });
+      const { data: row, error } = await sb.from('crm_staff').select('*').eq('user_id', u.id).maybeSingle();
       if (error) throw new Error(error.message);
-      if (state === 'pending') { this.status = 'pending'; this.current = { id: u.id, email: u.email, name: name || u.email }; return; }
-      const { data: row } = await sb.from('crm_staff').select('*').eq('user_id', u.id).maybeSingle();
+      if (!row) { this.status = 'pending'; this.current = { id: u.id, email: u.email, name: name || u.email }; return; }
       this.current = { id: u.id, email: u.email, pendingEmail: u.new_email || '', name: row?.name || name || u.email, role: row?.role || 'assistant' };
       this.status = 'staff';
       await this.loadTeam();
