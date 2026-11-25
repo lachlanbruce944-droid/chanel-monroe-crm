@@ -275,6 +275,7 @@ a.list-row:hover { background: #fdf8f6; }
 .cal-makeup-booked { --cal-bg: #daf2e6; --cal-fg: #134e38; --cal-mark: #21865d; }
 .cal-phone-pending { --cal-bg: #f9e5ef; --cal-fg: #72254e; --cal-mark: #ae487d; }
 .cal-phone-approved { --cal-bg: #e2eaff; --cal-fg: #253b81; --cal-mark: #4c69ca; }
+.cal-google-busy { --cal-bg: #e4eeeb; --cal-fg: #22504b; --cal-mark: #36786f; }
 .cal-reminder { --cal-bg: #ece8f1; --cal-fg: #51405f; --cal-mark: #80708e; }
 .cal-entry, .cal-pill { background: var(--cal-bg); color: var(--cal-fg); border-radius: 6px; }
 .cal-entry { display: block; border-left: 3px solid var(--cal-mark); padding: 2px 5px; line-height: 1.2; }

@@ -471,6 +471,7 @@
     'makeup-booked': 'Makeup booked',
     'phone-pending': 'Call pending',
     'phone-approved': 'Call approved',
+    'google-busy': 'Google busy',
     reminder: 'Reminder'
   };
 
@@ -502,6 +503,20 @@
     });
     DB.list('reminders', r => r.status === 'pending' && !DB.get('bookings',r.bookingId)?.archivedAt && r.kind !== 'call' && !r.kind.startsWith('event_day'))
       .forEach(r => push(ymd(new Date(r.dueAt)), { status:'reminder', name:r.title, href:r.bookingId ? `#/booking/${r.bookingId}` : '#/' }));
+    for (const block of state.googleCalendar?.busy || []) {
+      const localStart = Connectors.brisbaneInput(block.start_at);
+      const localEnd = Connectors.brisbaneInput(block.end_at);
+      for (let i = 0; i < 42; i++) {
+        const day = ymd(addDays(start, i));
+        const nextDay = ymd(addDays(start, i + 1));
+        if (localStart >= nextDay + 'T00:00' || localEnd <= day + 'T00:00') continue;
+        const from = localStart.startsWith(day) ? localStart.slice(11) : '00:00';
+        const to = localEnd.startsWith(day) ? localEnd.slice(11) : '24:00';
+        push(day, {status:'google-busy', name:'Unavailable', time:from,
+          sub:block.all_day ? 'All day' : fmtTime(from) + ' – ' + (to === '24:00' ? 'Midnight' : fmtTime(to)) + ' AEST',
+          href:'#/settings'});
+      }
+    }
     const chronological = (a,b) => (a.time || '99').localeCompare(b.time || '99');
     const cells = [];
     for (let i = 0; i < 42; i++) {
@@ -516,6 +531,16 @@
     const sel = (items[state.calSelected] || []).sort(chronological);
     return {
       title: first.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }),
+      after: async () => {
+        if (Date.now() - (state.googleCalendarChecked || 0) < 60000) return;
+        state.googleCalendarChecked = Date.now();
+        try {
+          state.googleCalendar = await Connectors.googleCalendar();
+          if (location.hash.startsWith('#/calendar')) rerender();
+        } catch (error) {
+          toast('Google Calendar blocks could not be loaded. ' + error.message, 'error');
+        }
+      },
       actions: `<button class="btn primary sm" data-act="calendarConsultation">Schedule phone call</button><button class="icon-btn" data-act="calNav" data-arg="-1">${icon('chevL')}</button><button class="btn ghost sm" data-act="calNav" data-arg="0">Today</button><button class="icon-btn" data-act="calNav" data-arg="1">${icon('chevR')}</button>`,
       html: `<section class="card flush cal">
           <div class="cal-head">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
