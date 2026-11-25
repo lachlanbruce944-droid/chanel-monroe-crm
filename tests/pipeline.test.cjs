@@ -46,3 +46,13 @@ test('archiving stores a restorable record and preserves related data', async ()
  assert.equal(restored.status,'open');
  assert.equal(restored.archivedAt,null);
 });
+
+test('recording a manual deposit leaves booking confirmation to an explicit action', async () => {
+  const f = fixture({stage:'deposit', depositAmount:60, callLoggedAt:'2020-01-01',
+    consultation:{provider:'crm',status:'confirmed'}});
+  await f.W.recordPayment(f.b, {type:'deposit',amount:60});
+  assert.equal(f.rows.bookings[0].stage,'deposit');
+  assert.equal(f.W.checkNext(f.b).ok,true);
+  await f.W.advance(f.b);
+  assert.equal(f.rows.bookings[0].stage,'booked');
+});

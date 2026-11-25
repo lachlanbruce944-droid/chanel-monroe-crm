@@ -126,7 +126,9 @@
     const additionalCosts = +b.additionalCosts || 0;
     const total = Math.max(0, servicesTotal + travel + additionalCosts - discount);
     const gst = p.gstRegistered ? total / 11 : 0;
-    const deposit = (b.depositAmount !== undefined && b.depositAmount !== null && b.depositAmount !== '')
+    const depositInvoice = DB.list('invoices', i => i.bookingId === b.id && i.type === 'deposit' &&
+      (i.approvalLocked || i.approvalLocked || i.stripeInvoiceId || i.status === 'paid'));
+    const deposit = depositInvoice ? Number(depositInvoice.total) : (b.depositAmount !== undefined && b.depositAmount !== null && b.depositAmount !== '')
       ? +b.depositAmount : Math.round(total * (+p.depositPercent || 0) / 100);
     const pays = DB.list('payments', x => x.bookingId === b.id);
     const paid = pays.reduce((s, x) => s + (+x.amount || 0), 0);
@@ -170,7 +172,7 @@
         break;
       case 'updates':
         if (!b.eventDate) reasons.push({ text: 'Add the event date' });
-        if (!(b.lines || []).length) reasons.push({ text: 'Add at least one service to the quote' });
+        if (!(b.lines || []).length || (b.lines || []).every(l => /^Website estimate\b/i.test(l.name))) reasons.push({ text: 'Add at least one service to the quote' });
         else if (t.total <= 0) reasons.push({ text: 'Quote total needs to be more than $0' });
         if (b.eventDate && dateClashes(b).length) reasons.push({ text: `You already have ${dateClashes(b).length} confirmed booking(s) that day`, soft: true });
         break;
@@ -316,7 +318,7 @@
     return 'CM-' + String(n).padStart(4, '0');
   }
 
-  async function ensureInvoice(b, type) {
+  function invoiceDraft(b, type) {
     b = fresh(b);
     const t = totals(b); const p = profile();
     let items;
@@ -330,16 +332,23 @@
       if (t.depositPaid) items.push({ desc: 'Less deposit received', qty: 1, price: -t.depositPaid });
     }
     const total = items.reduce((s, i) => s + i.qty * i.price, 0);
+    const dueAt = ymd(addDays(new Date(), type === 'deposit' ? (+p.depositDueDays || 3) : (+p.paymentTermsDays || 7)));
+    return { bookingId: b.id, clientId: b.clientId, type, items, total,
+      gst: p.gstRegistered ? total / 11 : 0, status: 'draft', dueAt };
+  }
+
+  async function ensureInvoice(b, type) {
+    b = fresh(b);
+    const draft = invoiceDraft(b, type);
     const inv = DB.find('invoices', x => x.bookingId === b.id && x.type === type);
-    if (inv && (inv.status === 'paid' || inv.stripeInvoiceId)) return inv;
+    if (inv && (inv.status === 'paid' || inv.stripeInvoiceId || inv.approvalLocked)) return inv;
     const saved = await DB.save('invoices', {
-      ...(inv || {}), bookingId: b.id, clientId: b.clientId, type,
+      ...(inv || {}), ...draft, status: inv?.status || 'draft',
       number: inv?.number || await nextInvoiceNumber(),
-      items, total, gst: p.gstRegistered ? total / 11 : 0, status: 'sent',
       issuedAt: inv?.issuedAt || today(),
-      dueAt: inv?.dueAt || ymd(addDays(new Date(), type === 'deposit' ? (+p.depositDueDays || 3) : (+p.paymentTermsDays || 7)))
+      dueAt: inv?.dueAt || draft.dueAt
     });
-    if (!inv) await log(b, 'invoice', `${type === 'deposit' ? 'Deposit' : 'Final'} invoice ${saved.number} raised for ${money(total)}`);
+    if (!inv) await log(b, 'invoice', `${type === 'deposit' ? 'Deposit' : 'Final'} invoice ${saved.number} prepared for ${money(draft.total)}`);
     await refreshInvoices(b);
     return saved;
   }
@@ -347,7 +356,7 @@
   async function refreshInvoices(b) {
     b = fresh(b);
     const t = totals(b);
-    for (const inv of DB.list('invoices', x => x.bookingId === b.id && x.status !== 'paid')) {
+    for (const inv of DB.list('invoices', x => x.bookingId === b.id && x.status !== 'paid' && x.status !== 'void' && !x.stripeInvoiceId && !x.approvalLocked)) {
       const covered = inv.type === 'deposit' ? t.depositPaid : (t.paid - t.depositPaid);
       if (covered >= inv.total - 0.005) {
         await DB.save('invoices', { ...inv, status: 'paid', paidAt: today() });
@@ -438,15 +447,15 @@
   async function saveBooking(b, patch, what = 'Details updated') {
     const before = fresh(b);
     if (patch.lines && DB.find('invoices', i => i.bookingId === before.id &&
-      (i.type === 'final' && (i.stripeInvoiceId || i.status === 'paid') ||
-       i.type === 'deposit' && i.stripeInvoiceId && i.status !== 'paid'))) {
+      (i.type === 'final' && (i.approvalLocked || i.stripeInvoiceId || i.status === 'paid') ||
+       i.type === 'deposit' && (i.approvalLocked || i.stripeInvoiceId) && i.status !== 'paid'))) {
       throw Error('Reconcile the issued invoice in Stripe before changing quote lines');
     }
     if (patch.additionalCosts !== undefined) {
       if (!before.callLoggedAt) throw Error('Complete the phone consultation before adding costs');
       if (!Number.isFinite(+patch.additionalCosts) || +patch.additionalCosts < 0) throw Error('Enter a valid additional cost');
       if (+patch.additionalCosts > 0 && !String(patch.additionalCostsReason || '').trim()) throw Error('Describe the agreed additional cost');
-      if (+patch.additionalCosts !== (+before.additionalCosts || 0) && DB.find('invoices', i => i.bookingId === before.id && i.type === 'final' && (i.stripeInvoiceId || i.status === 'paid'))) throw Error('Reconcile the issued final invoice in Stripe before changing its costs');
+      if (+patch.additionalCosts !== (+before.additionalCosts || 0) && DB.find('invoices', i => i.bookingId === before.id && i.type === 'final' && (i.approvalLocked || i.stripeInvoiceId || i.status === 'paid'))) throw Error('Reconcile the issued final invoice in Stripe before changing its costs');
     }
     if(DB.setting('connectorPreferences',{}).enabled && before.calendarSync){
       const calendarStart = before.calendarStart && new Date(before.calendarStart).toLocaleDateString('en-CA',{timeZone:'Australia/Brisbane'});
@@ -473,7 +482,7 @@
 
   async function recordPayment(b, { type, amount, method, paidAt, reference }) {
     b = fresh(b);
-    if (DB.find('invoices', i => i.bookingId === b.id && i.stripeInvoiceId && i.status !== 'paid')) throw Error('This booking has an open Stripe invoice. Refresh its payment status or reconcile it in Stripe before recording another payment.');
+    if (DB.find('invoices', i => i.bookingId === b.id && (i.stripeInvoiceId || i.approvalLocked) && !['paid','void'].includes(i.status))) throw Error('This booking has an open Stripe invoice. Refresh its payment status or reconcile it in Stripe before recording another payment.');
     amount = +amount;
     if (!(amount > 0)) throw new Error('Enter an amount above $0');
     await DB.save('payments', { bookingId: b.id, clientId: b.clientId, type, amount, method, paidAt: paidAt || today(), reference: reference || '' });
@@ -481,10 +490,7 @@
     await refreshInvoices(b);
     let advancedTo = null;
     b = fresh(b);
-    if ((b.stage === 'deposit' || b.stage === 'updates') && type === 'deposit') {
-      if (b.stage === 'updates') { const r = await advance(b); if (r.ok) b = r.booking; }
-      if (b.stage === 'deposit' && checkNext(b).ok) { const r = await advance(b); if (r.ok) advancedTo = r.stage; }
-    } else if (b.stage === 'invoice' && checkNext(b).ok) {
+    if (b.stage === 'invoice' && checkNext(b).ok) {
       const r = await advance(b); if (r.ok) advancedTo = r.stage;
     }
     return { booking: fresh(b), advancedTo };
@@ -575,8 +581,13 @@
 
   async function logMessage(b, templateKey, subject, channel) {
     if (templateKey === 'service_followup') await DB.save('bookings', {...fresh(b), followUpSentAt: new Date().toISOString()});
+    if (templateKey === 'quote' || templateKey === 'final_invoice') {
+      const type = templateKey === 'quote' ? 'deposit' : 'final';
+      const invoice = DB.find('invoices', i => i.bookingId === b.id && i.type === type);
+      if (invoice?.status === 'draft') await DB.save('invoices', {...invoice, status:'sent'});
+    }
     const t = TEMPLATES[templateKey];
-    await log(b, 'message', `Sent "${t ? t.label : subject}" by ${channel || 'message'}`);
+    await log(b, 'message', `Staff logged "${t ? t.label : subject}" by ${channel || 'message'}`);
     // sending a template satisfies any matching pending reminder
     const r = DB.find('reminders', r => r.bookingId === b.id && r.status === 'pending' && r.templateKey === templateKey);
     if (r) await completeReminder(r.id);
@@ -605,7 +616,7 @@
     call_confirm: { label: 'Confirm phone call', stage: 'call', build: v => ({ subject: 'Our call', body:
       `Hi ${v.first},\n\nJust confirming our call on ${v.call}. Feel free to have any inspiration photos handy — talk soon!` + sign(v) }) },
     quote: { label: 'Quote & deposit request', stage: 'updates', build: v => ({ subject: `Your quote — ${v.business}`, body:
-      `Hi ${v.first},\n\nIt was lovely chatting with you! Here's your quote for ${v.date} (ready by ${v.readyBy}) at ${v.location}:\n\n${v.lines}\n\nTotal: ${v.total}\n\nTo secure your date, a deposit of ${v.deposit} is required:\n${v.pay}\n\n${v.policy}\n\nOnce the deposit lands your date is locked in and I'll send through everything you need closer to the day.` + sign(v) }) },
+      `Hi ${v.first},\n\nIt was lovely chatting with you! Here's your quote for ${v.date} (ready by ${v.readyBy}) at ${v.location}:\n\n${v.lines}\n\nTotal: ${v.total}\n\nTo secure your date, a deposit of ${v.deposit} is required:\n${v.pay}\n\n${v.policy}\n\nOnce your deposit is received, I’ll check the calendar and send your booking confirmation.` + sign(v) }) },
     deposit_reminder: { label: 'Deposit reminder', stage: 'deposit', build: v => ({ subject: 'Securing your date', body:
       `Hi ${v.first},\n\nJust a gentle reminder that your date (${v.date}) isn't secured until the ${v.deposit} deposit comes through. I'd hate for you to miss out!\n\n${v.pay}` + sign(v) }) },
     deposit_received: { label: 'Deposit received — you’re booked', stage: 'booked', build: v => ({ subject: 'You’re booked in!', body:
@@ -638,6 +649,6 @@
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
     createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     archiveBooking, restoreBooking, deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
-    generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
+    generateEventReminders, ensureInvoice, invoiceDraft, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };
 })();
