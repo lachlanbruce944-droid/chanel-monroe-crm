@@ -758,7 +758,7 @@
       </div></fieldset>
       <fieldset><legend>Last few questions</legend><div class="form-grid">
         <label>How did you find ${esc(W.profile().artistName.split(' ')[0])}?<select name="heardFrom"><option value="">—</option>${['Instagram', 'TikTok', 'Google', 'Friend / referral', 'Wedding vendor', 'Facebook', 'Other'].map(o => `<option>${o}</option>`).join('')}</select></label>
-        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" name="consultAt" required></label><p class="small muted span-2">Pending Chanel’s approval. Normally at least three days before makeup; confirmation will be emailed once approved.</p>
+        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" name="consultAt" required></label><p class="small muted span-2">Pending Chanel’s approval. At least 24 hours before makeup; confirmation will be emailed once approved.</p>
         ${internal ? '' : '<label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>'}
         ${internal ? '' : '<label class="span-2 check"><input type="checkbox" name="consent" required> I’m happy to be contacted about my enquiry</label>'}
       </div></fieldset>`;
@@ -958,8 +958,8 @@
       await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
         body: `<label>Date & time · Brisbane<input type="datetime-local" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
-          <p class="muted small">Free 15-minute call. Pending until Chanel approves. Normally at least three days before makeup. The client does not confirm.</p><label>Short-notice exception reason (if under three days)<input name="note" placeholder="Chanel’s reason for approving short notice"></label>`,
-        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString(), f.note); toast('Consultation pending Chanel’s approval'); } });
+          <p class="muted small">Free 15-minute call. Pending until Chanel approves. At least 24 hours before makeup. The client does not confirm.</p>`,
+        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString()); toast('Consultation pending Chanel’s approval'); } });
       rerender();
     },
     async logCall(d) {

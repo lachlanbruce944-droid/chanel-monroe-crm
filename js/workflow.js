@@ -393,7 +393,19 @@
 
   async function consultationAction(b, action, details = {}) {
     const { data, error } = await DB.client.functions.invoke('consultation-manage', { body: { bookingId: fresh(b).id, action, ...details } });
-    if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Consultation update failed');
+    if (error || !data?.ok) {
+      const response = await error?.context?.json?.().catch(() => null);
+      const message = response?.error ?? data?.error;
+      const databasePrefix = 'Database operation failed: ';
+      if (typeof message === 'string' && message.startsWith(databasePrefix)) {
+        let databaseMessage;
+        try {
+          databaseMessage = JSON.parse(message.slice(databasePrefix.length)).message;
+        } catch {}
+        if (databaseMessage) throw new Error(databaseMessage);
+      }
+      throw new Error(message || error?.message || 'Consultation update failed');
+    }
     await DB.refresh();
     if (data.calendarError) UI.toast('Appointment saved; Apple Calendar needs a retry. ' + data.calendarError, 'error');
     if (data.emailError) throw new Error('Appointment saved, but the mail service could not send the consultation email. ' + data.emailError);
