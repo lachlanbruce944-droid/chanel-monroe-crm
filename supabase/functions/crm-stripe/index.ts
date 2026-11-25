@@ -1,8 +1,8 @@
 // Staff creates hosted invoice links; Stripe signatures authenticate payment callbacks.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@18';
-const CORS = {'Access-Control-Allow-Origin':'https://lachlanbruce944-droid.github.io','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info, stripe-signature','Access-Control-Allow-Methods':'POST, OPTIONS'};
-const json=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{...CORS,'Content-Type':'application/json','Cache-Control':'no-store'}});
+const ORIGINS = ['https://chanelmonroe.info','https://www.chanelmonroe.info','https://lachlanbruce944-droid.github.io'];
+const corsFor=(origin:string):Record<string,string>=>({'Access-Control-Allow-Origin':ORIGINS.includes(origin)?origin:ORIGINS[0],'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info, stripe-signature','Access-Control-Allow-Methods':'POST, OPTIONS','Vary':'Origin'});
 export function amountDue(invoice:any,payments:any[]){
  const paid=payments.filter(p=>invoice.type==='deposit'?p.type==='deposit':p.type!=='deposit').reduce((n,p)=>n+Math.round(Number(p.amount)*100),0);
  const amount=Math.round(Number(invoice.total)*100)-paid;
@@ -10,6 +10,8 @@ export function amountDue(invoice:any,payments:any[]){
  return amount;
 }
 Deno.serve(async req=>{
+ const CORS=corsFor(req.headers.get('origin')||'');
+ const json=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{...CORS,'Content-Type':'application/json','Cache-Control':'no-store'}});
  if(req.method==='OPTIONS')return new Response(null,{headers:CORS});
  if(req.method!=='POST')return json({error:'POST only'},405);
  const key=Deno.env.get('STRIPE_SECRET_KEY'),secret=Deno.env.get('STRIPE_WEBHOOK_SECRET');
