@@ -66,7 +66,7 @@ Deno.serve(async req=>{
   const call=input.action.includes('consult'),uid=`crm-${b.id}-${call?'phone':'makeup'}@chanelmonroe.net`,url=cfg.url+encodeURIComponent(uid)+'.ics';
   if(input.action==='remove-block'||input.action==='remove-consult'){const found=await dav(cfg,url,'GET');if(found.ok){if(!(await found.text()).includes('UID:'+uid))throw Error('Apple event ownership mismatch');await dav(cfg,url,'DELETE',undefined,{'If-Match':found.headers.get('etag')||'*'})}return reply({ok:true});}
   const start=call?b.call_at:b.extra?.calendarStart;
-  const end=call&&start?new Date(+new Date(start)+15*60000).toISOString():b.extra?.calendarEnd;
+  const end=call&&start?new Date(+new Date(start)+30*60000).toISOString():b.extra?.calendarEnd;
   if(!start||!end||!Number.isFinite(+new Date(start))||+new Date(end)<=+new Date(start))throw Error('Set exact CRM calendar start and finish times first');
   await available(cfg,start,end,uid);if(input.action==='check-consult'||input.action==='check-booking')return reply({ok:true});
   if(call&&(b.extra?.consultation?.provider!=='crm'||b.extra?.consultation?.status!=='confirmed'))throw Error('Chanel must approve the consultation before syncing it');

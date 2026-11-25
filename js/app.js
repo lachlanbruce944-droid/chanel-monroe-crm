@@ -192,8 +192,8 @@
 
   /* ================= BOOKING DETAIL ================= */
   const STAGE_ACTIONS = {
-    enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', 'primary']],
-    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['approveConsultation', '', 'Chanel: approve consultation', ''], ['logCall', '', 'Complete call & save details', 'primary']],
+    enquiry: [['scheduleCall', '', 'Schedule phone consultation', ''], ['logCall', '', 'Complete call & save details', 'primary']],
+    call: [['scheduleCall', '', 'Reschedule consultation', ''], ['logCall', '', 'Complete call & save details', 'primary']],
     updates: [['logCall', '', 'Add update', 'ghost'], ['sendQuote', '', 'Review quote & deposit', 'primary']],
     deposit: [['tpl', 'deposit_reminder', 'Chase deposit', ''], ['payment', 'deposit', 'Record deposit', 'primary']],
     booked: [['tpl', 'deposit_received', 'Send booking confirmation', ''], ['advance', '', 'Start the day', 'primary']],
@@ -265,8 +265,8 @@
         <div class="next-head"><span class="eyebrow">Step ${si + 1} of ${W.STAGES.length}</span><h2>${esc(W.stage(b.stage).label)}</h2></div>
         <p>${esc(W.stage(b.stage).hint)}</p>
         ${b.enquiryReviewNotes ? `<div class="notes"><h3>Enquiry review</h3><p>${esc(b.enquiryReviewNotes).replace(/\n/g, '<br>')}</p></div>` : ''}
-        ${!b.callAt && b.stage === 'enquiry' ? '<p class="callout">Choose the phone consultation time in the CRM calendar. Chanel approves it; the client does not need to confirm.</p>' : ''}
-        ${b.consultation ? `<p class="callout">${icon('phone')} CRM phone consultation · ${b.consultation.status === 'confirmed' && b.consultation.provider === 'crm' ? 'Approved by Chanel' : 'Pending Chanel’s approval'} · ${fmtDateTime(b.consultation.startTime)} · Brisbane time${b.consultation.emailStatus ? ' · Email: ' + esc(b.consultation.emailStatus) : ''}</p>` : ''}
+        ${!b.callAt && b.stage === 'enquiry' ? '<p class="callout">Choose the phone consultation time in the CRM calendar. Calls are confirmed automatically for 30 minutes.</p>' : ''}
+        ${b.consultation ? `<p class="callout">${icon('phone')} CRM phone consultation · ${b.consultation.status === 'confirmed' && b.consultation.provider === 'crm' ? 'Confirmed' : 'Not scheduled'} · ${fmtDateTime(b.consultation.startTime)} · Brisbane time</p>` : ''}
         ${b.stage === 'call' && b.callAt ? `<p class="callout">${icon('phone')} Call ${relDays(ymd(new Date(b.callAt)))} · ${fmtDateTime(b.callAt)}</p>` : ''}
         ${chk.next && chk.reasons.length ? `<ul class="checks">${chk.reasons.map(r => `<li class="${r.soft ? 'soft' : 'hard'}">${esc(r.text)}</li>`).join('')}</ul>` : ''}
         <div class="next-actions">${STAGE_ACTIONS[b.stage].map(([act, arg, label, cls]) => `<button class="btn ${cls}" data-act="${act}" data-id="${b.id}" data-arg="${arg}">${label}</button>`).join('')}</div>
@@ -471,7 +471,7 @@
     'makeup-hold': 'Makeup hold',
     'makeup-booked': 'Makeup booked',
     'phone-pending': 'Call pending',
-    'phone-approved': 'Call approved',
+    'phone-approved': 'Call confirmed',
     'google-busy': 'Google busy',
     reminder: 'Reminder'
   };
@@ -499,7 +499,7 @@
         const time = call.slice(11);
         const approved = b.consultation?.provider === 'crm' && b.consultation?.status === 'confirmed';
         push(call.slice(0,10), { status: approved ? 'phone-approved' : 'phone-pending', name,
-          sub: fmtTime(time) + ' AEST', href, time });
+          sub: fmtTime(time) + '–' + fmtTime(Connectors.brisbaneInput(new Date(+new Date(b.callAt)+30*60000).toISOString()).slice(11)) + ' AEST · 30 min', href, time });
       }
     });
     DB.list('reminders', r => r.status === 'pending' && !DB.get('bookings',r.bookingId)?.archivedAt && r.kind !== 'call' && !r.kind.startsWith('event_day'))
@@ -784,7 +784,7 @@
       </div></fieldset>
       <fieldset><legend>Last few questions</legend><div class="form-grid">
         <label>How did you find ${esc(W.profile().artistName.split(' ')[0])}?<select name="heardFrom"><option value="">—</option>${['Instagram', 'TikTok', 'Google', 'Friend / referral', 'Wedding vendor', 'Facebook', 'Other'].map(o => `<option>${o}</option>`).join('')}</select></label>
-        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" name="consultAt" required></label><p class="small muted span-2">Pending Chanel’s approval. At least 24 hours before makeup; confirmation will be emailed once approved.</p>
+        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" step="1800" name="consultAt" required></label><p class="small muted span-2">30-minute call, confirmed automatically. At least 24 hours before makeup.</p>
         ${internal ? '' : '<label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>'}
         ${internal ? '' : '<label class="span-2 check"><input type="checkbox" name="consent" required> I’m happy to be contacted about my enquiry</label>'}
       </div></fieldset>`;
@@ -981,10 +981,10 @@
     },
     async scheduleCall(d) {
       const b = DB.get('bookings', d.id); const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
-      await modal({ title: 'Schedule phone call', submitLabel: 'Save pending consultation & email',
-        body: `<label>Date & time · Brisbane<input type="datetime-local" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
+      await modal({ title: 'Schedule phone call', submitLabel: 'Save consultation',
+        body: `<label>Date & time · Brisbane<input type="datetime-local" step="1800" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
-          <p class="muted small">Free 15-minute call. Pending until Chanel approves. At least 24 hours before makeup. The client does not confirm.</p>`,
+          <p class="muted small">Free 30-minute call. Confirmed automatically; no separate email is sent. At least 24 hours before makeup. The client does not confirm.</p>`,
         async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString()); toast('Consultation pending Chanel’s approval'); } });
       rerender();
     },
