@@ -100,8 +100,8 @@
       document.body.appendChild(wrap);
       document.body.classList.add('modal-open');
       const form = wrap.querySelector('form');
-      const onKey = e => { if (e.key === 'Escape') close(null); };
-      function close(v) { wrap.remove(); document.body.classList.remove('modal-open'); document.removeEventListener('keydown', onKey); resolve(v); }
+      const onKey = e => { if (e.key === 'Escape' && Array.from(document.querySelectorAll('.modal-wrap')).at(-1) === wrap) { e.stopImmediatePropagation(); close(null); }; };
+      function close(v) { wrap.remove(); if (!document.querySelector('.modal-wrap')) document.body.classList.remove('modal-open'); document.removeEventListener('keydown', onKey); resolve(v); }
       document.addEventListener('keydown', onKey);
       wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(null); });
       wrap.addEventListener('click', e => { if (e.target.closest('[data-close]')) close(null); });

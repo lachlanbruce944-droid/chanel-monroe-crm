@@ -3,7 +3,7 @@ function fixture(patch={}){
  const rows={bookings:[{id:'b',clientId:'c',stage:'enquiry',status:'open',eventDate:'2026-12-30',lines:[{name:'Makeup',qty:1,price:200}],...patch}],clients:[{id:'c',firstName:'Jess'}],payments:[],invoices:[],reminders:[],photos:[],reviews:[],activity:[]};let count=0,calls=[];
  const DB={get:(s,id)=>rows[s]?.find(x=>x.id===id),list:(s,f)=>rows[s]?.filter(f||(()=>true))||[],find:(s,f)=>rows[s]?.find(f),setting:()=>undefined,setSetting:async()=>{},uid:()=>String(++count),save:async(s,v)=>{v={id:v.id||String(++count),...v};const i=rows[s].findIndex(x=>x.id===v.id);if(i<0)rows[s].push(v);else rows[s][i]=v;return v},refresh:async()=>{},client:{functions:{invoke:async(n,v)=>{calls.push(v.body);return {data:{ok:true}}}}}};
  const values=new Map();
- const ctx={window:{Auth:{current:{id:'owner',role:'owner'}},sessionStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)}},DB,UI:{money:n=>'$'+n,fmtDate:x=>x,fmtTime:x=>x,fmtDateTime:x=>x,today:()=> '2026-11-19',ymd:d=>new Date(d).toISOString().slice(0,10),parseYmd:d=>new Date(d),addDays:(d,n)=>new Date(+new Date(d)+n*86400000)}};vm.runInNewContext(fs.readFileSync('js/workflow.js','utf8'),ctx);return {W:ctx.window.Workflow,rows,b:rows.bookings[0],calls};
+ const ctx={window:{Auth:{current:{id:'owner',role:'owner'}},sessionStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)}},DB,UI:{money:n=>'$'+n,fmtDate:x=>x,fmtTime:x=>x,fmtDateTime:x=>x,today:()=> '2026-11-19',ymd:d=>new Date(d).toISOString().slice(0,10),parseYmd:d=>new Date(d),addDays:(d,n)=>new Date(+new Date(d)+n*86400000)}};vm.runInNewContext(fs.readFileSync('js/workflow.js','utf8'),ctx);return {W:ctx.window.Workflow,rows,b:rows.bookings[0],calls,UI:ctx.UI,Auth:ctx.window.Auth};
 }
 test('owner approval has no pre-call notes prerequisite',async()=>{const f=fixture({callAt:'2026-12-01T01:00:00Z'});await f.W.approveConsultation(f.b);assert.equal(f.calls[0].action,'approve');assert.ok(!f.b.enquiryReviewedAt)});
 test('pending consultation cannot progress but CRM approval can without notes',()=>{const f=fixture({consultation:{provider:'crm',status:'pending'}});assert.equal(f.W.checkNext(f.b).ok,false);f.b.consultation.status='confirmed';assert.equal(f.W.checkNext(f.b).ok,true)});
@@ -45,4 +45,26 @@ test('archiving stores a restorable record and preserves related data', async ()
  const restored = await f.W.restoreBooking(archived);
  assert.equal(restored.status,'open');
  assert.equal(restored.archivedAt,null);
+});
+
+test('past call override requires owner confirmation before creating any records',async()=>{
+ const f=fixture(); f.UI.esc=String; let prompts=0;
+ f.UI.modal=async()=>{prompts++;return null;};
+ const before=f.rows.bookings.length;
+ await assert.rejects(f.W.createEnquiry({firstName:'History',eventDate:'2020-02-02',consultAt:'2020-01-01T09:15'}),/cancelled/);
+ assert.equal(prompts,1);assert.equal(f.rows.bookings.length,before);assert.equal(f.rows.clients.length,1);
+ f.Auth.current.role='assistant';
+ await assert.rejects(f.W.confirmConsultationTiming(f.b,'2020-01-01T01:00:00Z'),/Only the CRM owner/);assert.equal(prompts,1);
+});
+test('confirmed timing override passes explicit choice and reason; cancellation does not schedule',async()=>{
+ const f=fixture();f.UI.esc=String;f.UI.modal=async()=>({override:true,reason:'Recording completed call'});
+ await f.W.scheduleCall(f.b,'2020-01-01T01:15:00Z');
+ assert.equal(f.calls[0].override,true);assert.equal(f.calls[0].exceptionReason,'Recording completed call');
+ f.UI.modal=async()=>null;
+ await assert.rejects(f.W.scheduleCall(f.b,'2020-01-01T01:15:00Z'),/cancelled/);assert.equal(f.calls.length,1);
+});
+test('normal future calls keep standard validation without a popup',async()=>{
+ const f=fixture({eventDate:'2099-12-30',startTime:'12:00'});
+ f.UI.modal=async()=>{throw Error('Unexpected popup')};
+ await f.W.scheduleCall(f.b,'2099-12-28T00:00:00Z');assert.equal(f.calls[0].override,false);
 });

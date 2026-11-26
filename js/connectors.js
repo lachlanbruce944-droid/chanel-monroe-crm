@@ -91,7 +91,7 @@
  async function ensureBlock(b,apple=true){
   if(apple&&(!b.calendarStart||b.calendarTimeMode==='automatic')){const next=automaticBlock(b);if(next.calendarStart){await ensureBlock(next,false);b=await DB.save('bookings',next);}}
   const start=b.calendarStart?+new Date(b.calendarStart):null,end=b.calendarEnd?+new Date(b.calendarEnd):null;
-  if(start&&b.callAt&&+new Date(b.callAt)+30*60000>start)throw Error('The phone consultation must finish before makeup starts');
+  if(!b.consultation?.schedulingOverride?.confirmed&&start&&b.callAt&&+new Date(b.callAt)+30*60000>start)throw Error('The phone consultation must finish before makeup starts');
   for(const other of DB.list('bookings',x=>x.id!==b.id&&x.status!=='lost')){
    if(other.callAt&&!other.callLoggedAt&&['enquiry','call'].includes(other.stage)){
     const at=+new Date(other.callAt);
@@ -105,7 +105,7 @@
  async function saveBlock(b,start,end){
   const a=new Date(start+':00+10:00'),z=new Date(end+':00+10:00');if(!Number.isFinite(+a)||!Number.isFinite(+z)||z<=a)throw Error('Choose a finish after the start');
   const next={...b,calendarStart:a.toISOString(),calendarEnd:z.toISOString(),calendarTimeMode:'manual',calendarSync:null};await ensureBlock(next,false);
-  if(b.callAt&&+new Date(b.callAt)+30*60000>=+a)throw Error('The phone consultation must finish before makeup starts');
+  if(!b.consultation?.schedulingOverride?.confirmed&&b.callAt&&+new Date(b.callAt)+30*60000>=+a)throw Error('The phone consultation must finish before makeup starts');
   await DB.save('bookings',next);
   const result=await request(['booked','day'].includes(b.stage)?'sync-booking':'check-booking',{bookingId:b.id});if(result.skipped)UI.toast('Saved in CRM; Apple Calendar is not connected');
  }

@@ -24,8 +24,10 @@ Deno.serve(async req=>{
    const response=await fetch(`${SB}/functions/v1/crm-connectors`,{method:'POST',headers:{Authorization:bearer,apikey:KEY,'Content-Type':'application/json'},body:JSON.stringify({action,bookingId:input.bookingId}),signal:AbortSignal.timeout(55000)});
    const value=await response.json();if(!response.ok||value.error)throw Error(value.error||'Apple Calendar check failed');return value;
   }
+  if(input.override!==undefined && typeof input.override!=='boolean')return reply({error:'Invalid override choice'},400);
+  if(input.override===true && !String(input.exceptionReason||'').trim())return reply({error:'Confirm the override and provide a reason'},400);
   if(input.action==='approve')await apple('check-consult');
-  await db('rpc/crm_manage_consultation',{method:'POST',body:JSON.stringify({p_booking:input.bookingId,p_actor:user.id,p_action:input.action,p_start:input.start||null,p_exception:String(input.exceptionReason||'').slice(0,1000)})});
+  await db('rpc/crm_manage_consultation',{method:'POST',body:JSON.stringify({p_booking:input.bookingId,p_actor:user.id,p_action:input.action,p_start:input.start||null,p_exception:String(input.exceptionReason||'').slice(0,1000),p_override:input.override===true})});
   // CRM approval has committed. Report export failures separately so email can still be delivered.
   let calendarError='';
   try{

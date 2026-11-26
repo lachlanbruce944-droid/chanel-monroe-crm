@@ -23,7 +23,8 @@
       case undefined: view = viewDashboard(); break;
       case 'pipeline': view = viewPipeline(); break;
       case 'booking': view = viewBooking(p1); break;
-      case 'clients': view = viewClients(); break;
+      case 'clients': view = viewClients(p1 === 'archived'); break;
+      case 'archived': view = viewClients(true); break;
       case 'client': view = viewClient(p1); break;
       case 'calendar': view = viewCalendar(); break;
       case 'invoices': view = viewInvoices(); break;
@@ -60,7 +61,7 @@
     const due = W.dueReminders().length;
     const newEnq = DB.list('bookings', b => b.stage === 'enquiry' && b.status !== 'lost').length;
     const nav = [['', 'home', 'Dashboard', due], ['pipeline', 'board', 'Enquiries', newEnq], ['calendar', 'calendar', 'Calendar'],
-      ['clients', 'users', 'Clients'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
+      ['clients', 'users', 'Clients'], ['archived', 'file', 'Archived'], ['employees', 'team', 'Connections', DB.list('people', x => x.status === 'applied').length], ['invoices', 'file', 'Invoices'], ['reviews', 'star', 'Reviews'],
       ['marketing', 'megaphone', 'Marketing'], ['inventory', 'box', 'Inventory'], ['services', 'layers', 'Services'], ['profile', 'user', 'Profile'], ['settings', 'settings', 'Settings']];
     const isActive = k => active === k || (k === 'employees' && active === 'employees') || (k === 'pipeline' && active === 'booking') || (k === 'clients' && active === 'client') || (k === 'invoices' && active === 'invoice');
     const tabs = nav.filter(n => ['', 'pipeline', 'calendar', 'clients', 'employees', 'settings'].includes(n[0]));
@@ -415,19 +416,23 @@
     try{await DB.save('clients',{...c,portraitPhotoId:id,portraitHidden:false})}catch(e){await DB.removeBlob(id).catch(()=>{});throw e}
     if(c.portraitPhotoId)await DB.removeBlob(c.portraitPhotoId).catch(()=>{});
   }
-  function viewClients() {
-    const clients = DB.list('clients').sort((a, b) => W.clientName(a).localeCompare(W.clientName(b)));
+  function viewClients(archived = false) {
+    const allClients = DB.list('clients');
+    const archivedClient = c => { const bookings=DB.list('bookings', b=>b.clientId===c.id); return bookings.length>0 && bookings.every(b=>!!b.archivedAt); };
+    const archivedCount=allClients.filter(archivedClient).length;
+    const tabs=`<nav class="enquiry-filters" aria-label="Client views"><a class="enquiry-filter ${!archived?'selected':''}" href="#/clients">Active <strong>${allClients.length-archivedCount}</strong></a><a class="enquiry-filter ${archived?'selected':''}" href="#/clients/archived">Archived <strong>${archivedCount}</strong></a></nav>`;
+    const clients = allClients.filter(c=>archivedClient(c)===archived).sort((a, b) => W.clientName(a).localeCompare(W.clientName(b)));
     return {
-      title: 'Clients', subtitle: `${clients.length} client${clients.length === 1 ? '' : 's'}`,
+      title: archived ? 'Archived clients' : 'Clients', subtitle: `${clients.length} client${clients.length === 1 ? '' : 's'}`,
       actions: `<label class="search">${icon('search')}<input type="search" placeholder="Search" data-filter=".client-row"></label><button class="btn primary sm" data-act="addClient">${icon('plus')} Client</button>`,
-      html: clients.length ? `<section class="card flush"><ul class="list">${clients.map(c => {
+      html: tabs + (clients.length ? `<section class="card flush"><ul class="list">${clients.map(c => {
         const bs = DB.list('bookings', b => b.clientId === c.id).sort((a, z) => (z.eventDate || '').localeCompare(a.eventDate || ''));
         const spent = DB.list('payments', p => p.clientId === c.id).reduce((s, p) => s + +p.amount, 0);
         return `<li class="client-row" data-search="${esc((W.clientName(c) + ' ' + (c.email || '') + ' ' + (c.phone || '') + ' ' + (c.instagram || '')).toLowerCase())}">
           <a class="list-row" href="#/client/${c.id}">${clientPortrait(c)}
           <div class="grow"><strong>${esc(W.clientName(c))}</strong><small>${esc(c.phone || '')}${c.email ? ' · ' + esc(c.email) : ''}</small></div>
           <div class="right"><small>${bs.length} booking${bs.length === 1 ? '' : 's'}</small>${spent ? `<small>${money(spent)} paid</small>` : ''}</div>${bs[0] ? stageBadge(bs[0]) : ''}</a></li>`;
-      }).join('')}</ul></section>` : empty('No clients yet.', '<a class="btn primary" href="#/new">Add the first enquiry</a>')
+      }).join('')}</ul></section>` : empty(archived ? 'No archived clients. Clients appear here when all their enquiries are archived.' : 'No active clients yet.', archived ? '' : '<a class="btn primary" href="#/new">Add the first enquiry</a>'))
     };
   }
 
@@ -784,7 +789,7 @@
       </div></fieldset>
       <fieldset><legend>Last few questions</legend><div class="form-grid">
         <label>How did you find ${esc(W.profile().artistName.split(' ')[0])}?<select name="heardFrom"><option value="">—</option>${['Instagram', 'TikTok', 'Google', 'Friend / referral', 'Wedding vendor', 'Facebook', 'Other'].map(o => `<option>${o}</option>`).join('')}</select></label>
-        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" step="1800" name="consultAt" required></label><p class="small muted span-2">30-minute call, confirmed automatically. At least 24 hours before makeup.</p>
+        <label>Preferred phone consultation · Brisbane time<input type="datetime-local" step="${internal ? 60 : 1800}" name="consultAt" required></label><p class="small muted span-2">30-minute call, confirmed automatically. At least 24 hours before makeup.${internal ? ' The owner can confirm an override for past or unusual times when saving.' : ''}</p>
         ${internal ? '' : '<label class="span-2">Anything else?<textarea name="notes" rows="2"></textarea></label>'}
         ${internal ? '' : '<label class="span-2 check"><input type="checkbox" name="consent" required> I’m happy to be contacted about my enquiry</label>'}
       </div></fieldset>`;
@@ -982,10 +987,10 @@
     async scheduleCall(d) {
       const b = DB.get('bookings', d.id); const def = b.callAt || (d.day ? new Date(d.day + 'T09:00:00+10:00').toISOString() : W.daysFromNow(1, '09:00'));
       await modal({ title: 'Schedule phone call', submitLabel: 'Save consultation',
-        body: `<label>Date & time · Brisbane<input type="datetime-local" step="1800" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
+        body: `<label>Date & time · Brisbane<input type="datetime-local" step="60" name="at" required value="${Connectors.brisbaneInput(def)}"></label>
           ${b.answers?.callPref ? `<p class="small muted">Client said: “${esc(b.answers.callPref)}”</p>` : ''}
-          <p class="muted small">Free 30-minute call. Confirmed automatically; no separate email is sent. At least 24 hours before makeup. The client does not confirm.</p>`,
-        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString()); toast('Consultation pending Chanel’s approval'); } });
+          <p class="muted small">Free 30-minute call. No separate email is sent. Past times and exceptions to the 24-hour rule show a confirmation popup before saving.</p>`,
+        async onSubmit(f) { await W.scheduleCall(b, new Date(f.at + ':00+10:00').toISOString()); toast('Consultation saved'); } });
       rerender();
     },
     async logCall(d) {

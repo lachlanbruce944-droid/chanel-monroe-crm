@@ -69,3 +69,10 @@ Settings includes a GoDaddy Microsoft 365 connector prepared for makeup@chanelmo
 
 ## Associate prospects — 21 November 2026
 25 researched Gold Coast makeup businesses are CRM-only prospects. Record contact and a confirmed connection before the owner publishes each profile. The website hides Associates when none are published and has no mock associate cards. [Research and workflow](docs/GOLD-COAST-ASSOCIATE-PROSPECTS.md). Instagram activity and most profile photos still require direct review.
+
+
+## Manual entry and archives — 26 November 2026
+
+The CRM owner can confirm date/time exceptions when adding an enquiry or rescheduling a phone consultation. Past calls, short notice, missing makeup dates and unusual start times show an override popup; the server records the actor, timestamp and reason. Public enquiry validation and calendar overlap checks remain in place. Past calls do not generate overdue consultation reminders or extra emails.
+
+Clients has Active and Archived tabs, plus an Archived navigation item. Clients whose bookings are all archived appear in Archived. Clients with an active booking remain in Active. Restoring a booking returns the client to Active.

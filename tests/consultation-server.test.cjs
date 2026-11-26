@@ -20,3 +20,11 @@ test('anonymous and assistant cannot schedule or approve',async()=>{assert.equal
 test('scheduling and approval save without any extra email',async()=>{for(const action of ['schedule','approve','retry-email']){const response=await invoke({bookingId:id,action,start:'2026-12-01T01:30Z'});assert.equal(response.status,200);const body=await response.json();assert.equal(body.ok,true);assert.equal(body.emailSent,false);}assert.equal(actions.length,3);assert.equal(sent.length,0);});
 test('invalid booking references never mutate bookings',async()=>{assert.equal((await invoke({bookingId:'bad',action:'approve'})).status,400);assert.equal(actions.length,0)});
 test('calendar export failure leaves call saved without sending mail',async()=>{failCalendar=true;const r=await invoke({bookingId:id,action:'schedule',start:'2026-12-01T01:30Z'});assert.equal(r.status,200);const body=await r.json();assert.equal(body.ok,true);assert.equal(body.emailSent,false);assert.match(body.calendarError,/Apple temporarily unavailable/);assert.equal(sent.length,0);assert.equal(actions.length,1)});
+
+test('override requires an owner and an explicit confirmed choice with a reason',async()=>{
+ let r=await invoke({bookingId:id,action:'schedule',start:'2020-01-01T01:15Z',override:true,exceptionReason:'Historical entry'});
+ assert.equal(r.status,200);assert.equal(actions[0].p_override,true);assert.equal(actions[0].p_exception,'Historical entry');
+ r=await invoke({bookingId:id,action:'schedule',override:true});assert.equal(r.status,400);
+ r=await invoke({bookingId:id,action:'schedule',override:'yes',exceptionReason:'History'});assert.equal(r.status,400);
+ role='assistant';r=await invoke({bookingId:id,action:'schedule',override:true,exceptionReason:'History'});assert.equal(r.status,403);assert.equal(actions.length,1);
+});

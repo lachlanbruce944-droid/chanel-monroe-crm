@@ -357,9 +357,38 @@
   }
 
   /* ---------- actions used by the UI ---------- */
+  function consultationTimingWarnings(b, iso, now = Date.now()) {
+    const at = +new Date(iso);
+    if (!Number.isFinite(at)) throw Error('Choose a valid phone consultation date and time');
+    const warnings = [];
+    if (at <= now) warnings.push('The phone consultation is in the past.');
+    const local = new Date(at + 10 * 3600000);
+    if (local.getUTCMinutes() % 30 || local.getUTCSeconds()) warnings.push('The consultation does not start on a half-hour window.');
+    if (local.getUTCHours() < 9 || local.getUTCHours() >= 17) warnings.push('The consultation is outside the usual 9 am–5 pm call hours.');
+    const day = new Intl.DateTimeFormat('en-CA', {timeZone:'Australia/Brisbane',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
+    if (b.eventDate && b.eventDate < day) warnings.push('The makeup appointment date is in the past.');
+    const makeupAt = b.calendarStart ? +new Date(b.calendarStart) : b.eventDate && (b.startTime || b.readyBy)
+      ? +new Date(b.eventDate + 'T' + (b.startTime || b.readyBy).slice(0,5) + ':00+10:00') - (b.startTime ? 0 : 180 * 60000) : null;
+    if (!b.eventDate) warnings.push('The makeup appointment date has not been entered.');
+    else if (makeupAt && makeupAt - at < 24 * 3600000) warnings.push('The call is less than 24 hours before the makeup appointment, or after it.');
+    return warnings;
+  }
+  async function confirmConsultationTiming(b, iso) {
+    const warnings = consultationTimingWarnings(b, iso);
+    if (!warnings.length) return {override:false, reason:''};
+    if (window.Auth?.current?.role !== 'owner') throw Error('Only the CRM owner can override date and time rules');
+    const result = await UI.modal({title:'Override date & time rules?', submitLabel:'Confirm override & save',
+      body:'<p>Save this manual entry using the selected times?</p><ul>' + warnings.map(w=>'<li>'+UI.esc(w)+'</li>').join('') +
+        '</ul><p>Phone consultation: <strong>'+UI.esc(UI.fmtDateTime(iso))+' · Brisbane</strong>. Duration: 30 minutes. Calendar overlaps are still checked. No consultation email will be sent.</p>' +
+        '<label>Reason (optional)<input name="reason" placeholder="e.g. Recording a call that already happened"></label>',
+      onSubmit:f=>({override:true, reason:String(f.reason||'Manual date/time override confirmed in CRM').trim() || 'Manual date/time override confirmed in CRM'})});
+    if (!result) throw Error('Date/time override cancelled. Nothing was saved.');
+    return result;
+  }
   async function createEnquiry(f, { source = 'Enquiry form', photos = [] } = {}) {
     const requestedAt = f.consultAt ? new Date(f.consultAt + ':00+10:00') : null;
-    if (requestedAt && (!Number.isFinite(+requestedAt) || +requestedAt <= Date.now())) throw Error('Choose a future phone consultation time');
+    if (requestedAt && !Number.isFinite(+requestedAt)) throw Error('Choose a valid phone consultation date and time');
+    const timing = requestedAt ? await confirmConsultationTiming(f, requestedAt.toISOString()) : null;
     const email = (f.email || '').trim().toLowerCase();
     let client = email ? DB.find('clients', c => (c.email || '').toLowerCase() === email) : null;
     client = await DB.save('clients', {
@@ -384,7 +413,7 @@
       answers: { trial: f.trial || '', look: f.look || '', heardFrom: f.heardFrom || '', callPref: f.callPref || '', notes: f.notes || '', skinType: f.skinType || '', allergies: f.allergies || '' },
       stageChangedAt: new Date().toISOString()
     });
-    if (requestedAt) await scheduleCall(b, requestedAt.toISOString());
+    if (requestedAt) await scheduleCall(b, requestedAt.toISOString(), timing?.reason || '', timing);
     await log(b, 'enquiry', `New enquiry via ${source}`);
     await upsertReminder(b, { kind: 'enquiry_review', title: `Review ${clientName(client)}’s enquiry`, dueAt: daysFromNow(0, '23:00') });
     for (const file of photos) await addPhoto(b, file, 'inspo', 'Inspiration from enquiry');
@@ -411,8 +440,9 @@
     if (data.emailError) throw new Error('Appointment saved, but the mail service could not send the consultation email. ' + data.emailError);
     return fresh(b);
   }
-  async function scheduleCall(b, iso, exceptionReason = '') {
-    return consultationAction(b, 'schedule', { start: iso, exceptionReason });
+  async function scheduleCall(b, iso, exceptionReason = '', confirmedTiming = null) {
+    const timing = confirmedTiming || await confirmConsultationTiming(fresh(b), iso);
+    return consultationAction(b, 'schedule', { start: iso, exceptionReason: timing.reason || exceptionReason, override:timing.override });
   }
 
   async function reviewEnquiry(b, notes) {
@@ -648,7 +678,7 @@
   window.Workflow = {
     developerModeEnabled, setDeveloperMode, STAGES, idx, stage, EVENT_TYPES, PAY_METHODS, TEMPLATES, DEFAULT_PROFILE,
     profile, saveProfile, services, ensureDefaults, clientOf, clientName, totals, checkNext, advance, moveBack,
-    createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
+    consultationTimingWarnings, confirmConsultationTiming, createEnquiry, scheduleCall, reviewEnquiry, approveConsultation, logCall, saveBooking, recordPayment, deletePayment, markLost, reopen,
     archiveBooking, restoreBooking, deleteBooking, deleteClient, addReview, addPhoto, deletePhoto, addReminder, completeReminder, dueReminders,
     generateEventReminders, ensureInvoice, logMessage, renderTemplate, log, dateClashes, daysFromNow
   };
