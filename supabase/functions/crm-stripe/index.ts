@@ -1,7 +1,7 @@
 // Staff creates hosted invoice links; Stripe signatures authenticate payment callbacks.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@18';
-const ORIGINS = ['https://chanelmonroe.info','https://www.chanelmonroe.info','https://lachlanbruce944-droid.github.io'];
+const ORIGINS = ['https://chanelmonroe.net','https://www.chanelmonroe.net','https://lachlanbruce944-droid.github.io'];
 const corsFor=(origin:string):Record<string,string>=>({'Access-Control-Allow-Origin':ORIGINS.includes(origin)?origin:ORIGINS[0],'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info, stripe-signature','Access-Control-Allow-Methods':'POST, OPTIONS','Vary':'Origin'});
 export function amountDue(invoice:any,payments:any[]){
  const paid=payments.filter(p=>invoice.type==='deposit'?p.type==='deposit':p.type!=='deposit').reduce((n,p)=>n+Math.round(Number(p.amount)*100),0);
