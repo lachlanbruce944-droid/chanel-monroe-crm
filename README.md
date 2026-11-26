@@ -76,3 +76,10 @@ Settings includes a GoDaddy Microsoft 365 connector prepared for makeup@chanelmo
 The CRM owner can confirm date/time exceptions when adding an enquiry or rescheduling a phone consultation. Past calls, short notice, missing makeup dates and unusual start times show an override popup; the server records the actor, timestamp and reason. Public enquiry validation and calendar overlap checks remain in place. Past calls do not generate overdue consultation reminders or extra emails.
 
 Clients has Active and Archived tabs, plus an Archived navigation item. Clients whose bookings are all archived appear in Archived. Clients with an active booking remain in Active. Restoring a booking returns the client to Active.
+
+
+## CRM paused — 26 November 2026
+
+The public Client Studio entry page is temporarily offline at the owner's request. The website enquiry form continues to collect details, reserve calendar time and send enquiry emails to Chanel and the client. Keep the database, availability functions, enquiry email function and Google Calendar sync running. Do not delete or disable the shared booking backend when restoring or maintaining this pause.
+
+Restore the CRM interface using the prior index.html from Git history. No client records, payment records, functions or calendar sync settings are removed. Timed enquiry reminders await the owner's choice of recipients and schedule.
