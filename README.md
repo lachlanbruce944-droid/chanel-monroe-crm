@@ -78,8 +78,10 @@ The CRM owner can confirm date/time exceptions when adding an enquiry or resched
 Clients has Active and Archived tabs, plus an Archived navigation item. Clients whose bookings are all archived appear in Archived. Clients with an active booking remain in Active. Restoring a booking returns the client to Active.
 
 
-## CRM paused — 26 November 2026
+## CRM restored — 27 November 2026
 
-The public Client Studio entry page is temporarily offline at the owner's request. The website enquiry form continues to collect details, reserve calendar time and send enquiry emails to Chanel and the client. Keep the database, availability functions, enquiry email function and Google Calendar sync running. Do not delete or disable the shared booking backend when restoring or maintaining this pause.
+Client Studio is live again at https://chanelmonroe.net, with staff sign-in restored. Existing records and website enquiry/email handling remain active.
 
-Restore the CRM interface using the prior index.html from Git history. No client records, payment records, functions or calendar sync settings are removed. Timed enquiry reminders await the owner's choice of recipients and schedule.
+Google Calendar for makeup@chanelmonroe.net is already paired. The installed Apps Script reconciles CRM changes every five minutes, updating existing events by booking ID instead of duplicating them. Appointment time blocks, consultation times and cancellations are read from Supabase on each run. Google busy times return to CRM/website availability. Calendar time-block edits also update the booking date and start time used by the CRM calendar.
+
+See [calendar sync](docs/CONNECTORS.md). No separate client email is sent by Google sync.
